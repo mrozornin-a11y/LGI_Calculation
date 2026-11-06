@@ -1,0 +1,15 @@
+# Справочное описание окружения fluidcalc (conda-forge). У вас оно уже создано —
+# пересоздавать не нужно. Для нового компьютера (нужен интернет только на этапе установки):
+#   ~/miniforge3/bin/conda env create -f environment.yml
+name: fluidcalc
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pyside6
+  - coolprop
+  - matplotlib
+  - openpyxl
+  - numpy
+  - scipy
+  - pandas

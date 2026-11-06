@@ -1,0 +1,20 @@
+# Версии, на которых FluidCalc протестирован разработчиком (Python 3.11.18, pip, Linux x86_64).
+# На OSNova зафиксируйте СВОЁ окружение:  conda list --explicit > conda-lock-osnova.txt
+contourpy==1.3.3
+CoolProp==8.0.0
+cycler==0.12.1
+et_xmlfile==2.0.0
+fonttools==4.68.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+numpy==2.4.6
+openpyxl==3.1.5
+packaging==26.3
+pandas==3.1.1
+pillow==13.0.0
+pyparsing==3.3.3
+PySide6==6.12.0
+python-dateutil==4.0.0
+scipy==1.17.1
+shiboken6==6.12.0
+tzdata==2026.6

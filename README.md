@@ -1,48 +1,166 @@
-# Fluid Inclusion Core — pre-release 0.2
+# FluidCalc — микротермометрия флюидных включений
 
-**Research/development prototype. NOT validated software for publication-ready fluid inclusion pressure or composition estimates.**
+**Исследовательский прототип.** Не является аттестованным программным обеспечением для публикационных
+оценок давления или состава флюидов. Успешные автоматические тесты — это не независимая научная валидация.
 
-## What's included
+Программа ведёт журнал микротермометрических наблюдений и выполняет **только** проверенные расчёты ядра
+`fluid_core` (без изменения коэффициентов):
 
-- `fluid_core/salinity.py`: Bodnar (1993) ice-melting NaCl-equivalent salinity, Darling (1991) CO₂-clathrate-melting NaCl-equivalent salinity, conditional mass-volume balance check.
-- `fluid_core/co2.py`: **pure CO₂** density and saturation pressure at a measured CO₂ partial homogenization temperature for **explicit liquid/vapor homogenization branch**. Uses CoolProp (`HEOS`/CO₂) as an optional back-end; no copied EOS coefficients.
-- `fluid_core/batch.py`: UTF-8 CSV processing that records measurement and method, and flags invalid inputs per row.
-- `tests/`: formula substitution tests, applicability checks, and **conditional** backend consistency check.
-- `docs/`: scientific assumptions, staged development brief for Claude Code, and outstanding validation.
+| Наблюдение | Расчёт | Источник |
+|---|---|---|
+| Tm лёд | солёность, мас. % NaCl-экв. | Bodnar (1993), DOI 10.1016/0016-7037(93)90378-A |
+| Tm клатрат | солёность водной части, мас. % NaCl-экв. | Darling (1991), DOI 10.1016/0016-7037(91)90079-K |
+| Th CO₂ + направление гомогенизации | плотность насыщенной жидкой **или** газовой чистой CO₂, P_sat CO₂, мольный объём | Span & Wagner (1996), DOI 10.1063/1.555991, через CoolProp |
+| Tm CO₂, Th общ., Te | только регистрация, расчёт не выполняется | — |
 
-## Running on modern Windows with Python
+P_sat — давление насыщения чистой CO₂ при Th CO₂, **не** давление минералообразования.
 
-```bat
-py -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements-optional.txt
-.venv\Scripts\python.exe -m unittest discover -s tests -v
-.venv\Scripts\python.exe -m fluid_core examples\example_input.csv examples\results.csv
+## Целевая система
+
+OSNova Linux Onyx 2.7 (x86_64, glibc 2.28, KDE), Miniforge в `~/miniforge3`, окружение `fluidcalc`
+(Python 3.11, CoolProp, PySide6, matplotlib, openpyxl). Системный Python, glibc и настройки OSNova
+не используются и не изменяются. Сборка EXE не нужна.
+
+## Установка (один раз)
+
+Окружение `fluidcalc` у вас уже создано. Скопируйте каталог программы, например в `~/FluidCalc`, затем:
+
+```bash
+cd ~/FluidCalc
 ```
 
-Without installing CoolProp, the salinity operations work; CO₂ numerical calculations will return a clear per-row error. Tests can still run, but the CO₂-backend test will be **skipped**. This is not a passing CO₂ validation.
+```bash
+./install_desktop.sh
+```
 
-Do not run this development environment on the Linkam Windows XP acquisition computer. Use a modern research PC for thermodynamic calculations.
+Скрипт создаёт ярлык в меню приложений (`~/.local/share/applications/fluidcalc.desktop`) и на рабочем
+столе. Права администратора не нужны. Если KDE спросит о доверии к ярлыку — подтвердите.
+Удалить ярлыки: `./uninstall_desktop.sh`.
 
-## Input
+Проверка окружения (версии, glibc, CoolProp):
 
-`method`: `bodnar`, `darling`, `co2`. `temperature_c` is °C with decimal point or comma (within a quoted CSV field). For Darling, confirm coexistence of liquid CO₂, CO₂ vapor, and aqueous phase **at the clathrate disappearance**. For pure CO₂ density, `homogenization_to` is `liquid` or `vapor` and `co2_purity_confirmed=true` means the operator explicitly accepts the pure-CO₂ approximation (it is **not proof** of composition).
+```bash
+~/miniforge3/envs/fluidcalc/bin/python tools/check_env.py
+```
 
-## Important limitations
+Если окружения нет (новый компьютер; интернет нужен только на этом шаге):
 
-1. These salinities are NaCl equivalents, **not** chemical analyses.
-2. CO₂ partial homogenization is not complete inclusion homogenization. CO₂ saturated phase pressure at Th_CO2 is **not** trapping pressure.
-3. The two CO₂ saturation densities are distinct for temperatures below the critical point; choosing the wrong branch produces a different density. If CO₂ has significant CH₄, N₂ etc., this model does not apply.
-4. `mixture_density_simple` assumes densities and volume proportions all refer to the same T/P. It does not infer bulk density from a room-temperature image.
-5. The critical temperature guard of 0.10 °C is a **conservative software policy**, not a published fixed uncertainty threshold. A validated release needs instrument-specific calibration and uncertainty propagation.
-6. Current test values for salinity derive from equation substitution. They are **not** independent experimental reference points.
-7. **No** H₂O–NaCl EOS, H₂O–CO₂–NaCl PVT, trapping pressures, isochore solver, Raman composition, or multi-salt speciation is claimed to be implemented.
+```bash
+~/miniforge3/bin/conda env create -f environment.yml
+```
 
-## Scientific sources
+Рекомендуется зафиксировать точный состав окружения (lock-файл) на вашей машине:
 
-- Bodnar R.J. (1993). DOI: https://doi.org/10.1016/0016-7037(93)90378-A
-- Darling R.S. (1991). DOI: https://doi.org/10.1016/0016-7037(91)90079-K
-- Span & Wagner (1996). DOI: https://doi.org/10.1063/1.555991
-- CoolProp API: https://coolprop.org/coolprop/HighLevelAPI.html
-- CoolProp CO₂: https://coolprop.org/fluid_properties/fluids/CarbonDioxide.html
+```bash
+~/miniforge3/bin/conda list -n fluidcalc --explicit > conda-lock-osnova.txt
+```
 
-See `docs/` for planned scientific verification and instructions for Claude Code.
+## Запуск
+
+* двойной щелчок по ярлыку **FluidCalc** на рабочем столе или в меню «Наука»;
+* или `./fluidcalc.sh` (в Dolphin: двойной щелчок → «Выполнить»);
+* другая база: `./fluidcalc.sh /путь/к/базе.sqlite`.
+
+Если Miniforge установлен не в `~/miniforge3`: `FLUIDCALC_CONDA=/путь/к/miniforge3 ./fluidcalc.sh`.
+Ошибки запуска показываются окном (kdialog) и пишутся в `~/.local/share/fluidcalc/logs/launcher.log`.
+
+**Работа без интернета.** После установки зависимостей сеть не требуется: все расчёты (включая CoolProp),
+база SQLite, графики и справка — локальные. Это проверяет тест `tests/test_plots_offline.py`
+(полный цикл импорт → расчёт → графики при заблокированных сетевых соединениях).
+
+## Работа с программой
+
+* **Дерево слева:** проект → образец → минерал → FIA → включение (правая кнопка мыши — добавить,
+  переименовать, удалить). Неуказанный минерал/FIA показывается как «(минерал не указан)» — значения
+  не придумываются.
+* **Измерения:** журнал наблюдений (Tm лёд, Tm клатрат, Tm CO₂, Th CO₂, Th общ., Te) с погрешностью,
+  направлением гомогенизации, фазовыми признаками («не указано / да / нет»), описанием фаз.
+  «Добавить…» (Ctrl+N) — ввод отдельного измерения.
+* **Импорт CSV / Excel** (Ctrl+I): CSV (UTF-8 или Windows-1251; разделитель `,` `;` или табуляция;
+  десятичная точка или запятая, знак «−») и XLSX (выбор листа). Карта полей с автоподбором,
+  просмотр исходных данных, построчная проверка; строки с ошибками не импортируются; точные дубликаты
+  пропускаются. Исходный файл не изменяется (в журнал импорта пишется его SHA-256).
+  Форматы: длинный (`examples/example_input.csv`) и широкий (`examples/example_wide.xlsx`,
+  `examples/example_wide_ru.csv` — **синтетические** данные для проверки интерфейса).
+* **Расчёт** (F5 — выбранный узел дерева, Shift+F5 — вся база) выполняется в фоновом потоке. Каждый расчёт
+  сохраняется отдельной версией со снимком входных данных и версиями программ; прежние не перезаписываются.
+* **Результаты:** таблица со статусами «рассчитано / отказ / не рассчитывается» и **паспорт результата**:
+  входные данные, методика, уравнение, область применимости, источник и DOI, допущения, ограничения,
+  предупреждения, версии. При погрешности u показываются значения при T ± u (оценка чувствительности,
+  не полный бюджет неопределённости).
+* **Экспорт:** XLSX (листы «Результаты», «Паспорта», «Расчёт», «Методики и источники», «Ограничения»),
+  CSV для русской локали (`;`, десятичная запятая) или международный CSV; экспорт таблицы измерений
+  (повторно импортируется); резервная копия базы и выгрузка всей базы в XLSX (меню «Файл»).
+* **Графики:** Th общ. — солёность, распределения Th общ., солёности, Th CO₂ по образцам/FIA;
+  сохранение PNG/SVG. Без интерпретаций (полей, трендов, изохор).
+* **Быстрый расчёт:** одно значение без записи в базу.
+* **Методики и ограничения:** справка по методам, источникам, нереализованным моделям и незавершённой проверке.
+
+Расчёт блокируется (статус «отказ» с причиной), если: температура вне области применимости; для Darling не
+подтверждено (или не указано) сосуществование жидкой CO₂, газовой CO₂ и водного раствора; для CO₂ не указано
+направление гомогенизации (ветвь не выбирается автоматически), гомогенизация критическая, не принято
+приближение чистой CO₂ или Th CO₂ ближе 0,10 °C к критической точке.
+
+## Данные и журналы
+
+* База по умолчанию: `~/.local/share/fluidcalc/fluidcalc.sqlite` (меню «Файл» — открыть/создать другую).
+* Схема базы версионируется (`PRAGMA user_version`); перед миграцией существующей базы создаётся копия
+  `*.bak-vN-дата.sqlite`.
+* Журнал работы: `~/.local/share/fluidcalc/logs/fluidcalc.log` («Справка → Журнал работы»).
+
+## Тесты
+
+```bash
+./run_tests.sh
+```
+
+Тесты запускаются без дисплея (`QT_QPA_PLATFORM=offscreen`) во временном каталоге данных и не трогают рабочую
+базу. Полный журнал с версиями пишется в `docs/TEST_REPORT.txt`, в конце — сводка passed/failed/skipped.
+Командная строка ядра (без GUI) по-прежнему доступна:
+
+```bash
+~/miniforge3/envs/fluidcalc/bin/python -m fluid_core examples/example_input.csv /tmp/results.csv
+```
+
+## Структура
+
+```
+fluid_core/          расчётное ядро v0.2 (формулы не изменялись)
+fluid_app/           приложение: calc.py (связь с ядром, паспорт), db.py (SQLite, миграции),
+                     importer.py, exporter.py, plots.py, methods.py (справочник), gui/ (PySide6)
+tests/               автоматические тесты (unittest)
+examples/            примеры входных файлов
+docs/                научный аудит, ТЗ, проверка ядра, статус валидации, журнал тестов
+fluidcalc.sh         запуск; install_desktop.sh / uninstall_desktop.sh — ярлыки KDE
+tools/check_env.py   проверка окружения
+```
+
+## Документы
+
+* `docs/CORE_REVIEW.md` — результаты проверки расчётного ядра.
+* `docs/VALIDATION_STATUS.md` — **непройденные научные проверки и нереализованные модели**.
+* `docs/SCIENTIFIC_AUDIT.md`, `docs/CLAUDE_CODE_TASK.md` — исходные научный аудит и ТЗ.
+* `docs/README_core_v02_en.md` — исходный README ядра 0.2.
+
+## Библиотеки и лицензии
+
+| Библиотека | Назначение | Лицензия |
+|---|---|---|
+| Python 3.11 | среда выполнения | PSF License |
+| PySide6 / Shiboken6 (Qt for Python) | интерфейс | LGPL-3.0 (или коммерческая Qt) |
+| CoolProp | уравнение состояния CO₂ (Span & Wagner) | MIT |
+| matplotlib | графики | Matplotlib License (на основе PSF) |
+| openpyxl (+ et_xmlfile) | чтение/запись XLSX | MIT |
+| NumPy | зависимость matplotlib | BSD-3-Clause |
+| SQLite (модуль sqlite3) | хранение данных | Public domain |
+| SciPy, pandas | установлены в окружении, программой не используются | BSD-3-Clause |
+
+Проверенные версии — в `requirements-lock.txt` (CoolProp 8.0.0, PySide6 6.12.0, matplotlib 3.11.2,
+openpyxl 3.1.5, Python 3.11.18).
+
+## Чего программа не делает
+
+Не определяет состав солей (NaCl/CaCl₂/MgCl₂/FeCl₂) по Te; не выдаёт давление минералообразования;
+не считает Th температурой образования; не строит изохоры H₂O–NaCl / H₂O–CO₂–NaCl; не смешивает
+визуальную долю пузырька при комнатной температуре с плотностями фаз при Th; не управляет оборудованием Linkam.
+Список нереализованных моделей — в `docs/VALIDATION_STATUS.md`.

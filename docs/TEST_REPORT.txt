@@ -1,0 +1,92 @@
+FluidCalc — журнал автоматических тестов
+Дата: 2026-11-06 13:02:24 UTC
+Примечание: этот журнал получен в среде разработчика (Linux x86_64, glibc 2.39, Python 3.11.18 venv),
+а не на OSNova Onyx 2.7. Запустите ./run_tests.sh на целевой машине — файл будет перезаписан.
+Python:     3.11.18 (venv разработчика)
+Платформа:  Linux-6.18.44-fc-v242-x86_64-with-glibc2.39
+glibc:      2.39
+PySide6     6.12.0
+CoolProp    8.0.0
+matplotlib  3.11.2
+openpyxl    3.1.5
+numpy       2.4.6
+scipy       1.17.1
+pandas      3.1.1
+Проверка CoolProp: ρ(CO₂, ж, 20 °C) = 0.773387 г/см³, P_sat = 57.2905 бар
+FluidCalc:  0.1.0; ядро fluid_core 0.2
+
+test_decimal_comma_quoted (test_batch.TestBatch.test_decimal_comma_quoted) ... ok
+test_example_input (test_batch.TestBatch.test_example_input) ... ok
+test_missing_column_rejected (test_batch.TestBatch.test_missing_column_rejected) ... ok
+test_short_row_does_not_crash_batch (test_batch.TestBatch.test_short_row_does_not_crash_batch) ... ok
+test_snapshot (test_calc.TestCoolPropRegression.test_snapshot) ... ok
+test_bodnar_identical_to_core (test_calc.TestDispatch.test_bodnar_identical_to_core) ... ok
+test_bodnar_out_of_range_blocked (test_calc.TestDispatch.test_bodnar_out_of_range_blocked) ... ok
+test_bodnar_zero_not_negative_zero (test_calc.TestDispatch.test_bodnar_zero_not_negative_zero) ... ok
+test_co2_branch_not_chosen_automatically (test_calc.TestDispatch.test_co2_branch_not_chosen_automatically) ... ok
+test_co2_critical_homogenization_blocked (test_calc.TestDispatch.test_co2_critical_homogenization_blocked) ... ok
+test_co2_purity_required (test_calc.TestDispatch.test_co2_purity_required) ... ok
+test_co2_result_and_warnings (test_calc.TestDispatch.test_co2_result_and_warnings) ... ok
+test_darling_identical_to_core (test_calc.TestDispatch.test_darling_identical_to_core) ... ok
+test_darling_phase_absent_blocked (test_calc.TestDispatch.test_darling_phase_absent_blocked) ... ok
+test_darling_unknown_phase_not_assumed (test_calc.TestDispatch.test_darling_unknown_phase_not_assumed) ... ok
+test_missing_temperature (test_calc.TestDispatch.test_missing_temperature) ... ok
+test_passport_contains_source_and_limits (test_calc.TestDispatch.test_passport_contains_source_and_limits) ... ok
+test_record_only_kinds_skipped (test_calc.TestDispatch.test_record_only_kinds_skipped) ... ok
+test_sensitivity_partial_at_range_edge (test_calc.TestDispatch.test_sensitivity_partial_at_range_edge) ... ok
+test_sensitivity_range (test_calc.TestDispatch.test_sensitivity_range) ... ok
+test_unknown_kind (test_calc.TestDispatch.test_unknown_kind) ... ok
+test_core_errors_are_translated (test_calc.TestTranslations.test_core_errors_are_translated)
+Каждое известное сообщение ядра, возникающее при отказе, имеет русский перевод. ... ok
+test_above_critical (test_core.TestCO2.test_above_critical) ... ok
+test_backend_saturation_properties (test_core.TestCO2.test_backend_saturation_properties) ... ok
+test_below_triple (test_core.TestCO2.test_below_triple) ... ok
+test_missing_branch (test_core.TestCO2.test_missing_branch) ... ok
+test_missing_purity_confirmation (test_core.TestCO2.test_missing_purity_confirmation) ... ok
+test_near_critical (test_core.TestCO2.test_near_critical) ... ok
+test_balance (test_core.TestSalinity.test_balance) ... ok
+test_balance_requires_same_tp (test_core.TestSalinity.test_balance_requires_same_tp) ... ok
+test_bodnar_formula (test_core.TestSalinity.test_bodnar_formula) ... ok
+test_bodnar_range (test_core.TestSalinity.test_bodnar_range) ... ok
+test_darling_formula (test_core.TestSalinity.test_darling_formula) ... ok
+test_darling_phase_gate (test_core.TestSalinity.test_darling_phase_gate) ... ok
+test_cascade_delete (test_db.TestHierarchy.test_cascade_delete) ... ok
+test_duplicates_refused (test_db.TestHierarchy.test_duplicates_refused) ... ok
+test_empty_name_refused (test_db.TestHierarchy.test_empty_name_refused) ... ok
+test_flags_roundtrip_none (test_db.TestHierarchy.test_flags_roundtrip_none) ... ok
+test_observation_validation (test_db.TestHierarchy.test_observation_validation) ... ok
+test_tree (test_db.TestHierarchy.test_tree) ... ok
+test_results_survive_observation_delete (test_db.TestRuns.test_results_survive_observation_delete) ... ok
+test_run_records_versions (test_db.TestRuns.test_run_records_versions) ... ok
+test_runs_do_not_overwrite (test_db.TestRuns.test_runs_do_not_overwrite) ... ok
+test_backup (test_db.TestSchema.test_backup) ... ok
+test_newer_schema_refused (test_db.TestSchema.test_newer_schema_refused) ... ok
+test_reopen_keeps_data (test_db.TestSchema.test_reopen_keeps_data) ... ok
+test_version (test_db.TestSchema.test_version) ... ok
+test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... ok
+test_observation_dialog (test_gui.TestMainWindow.test_observation_dialog) ... ok
+test_quick_calc (test_gui.TestMainWindow.test_quick_calc) ... ok
+test_database_dump (test_import_export.TestImportAndExport.test_database_dump) ... ok
+test_export_csv_and_xlsx (test_import_export.TestImportAndExport.test_export_csv_and_xlsx) ... ok
+test_hierarchy_conflict_reported (test_import_export.TestImportAndExport.test_hierarchy_conflict_reported) ... ok
+test_observation_export_roundtrip (test_import_export.TestImportAndExport.test_observation_export_roundtrip) ... ok
+test_original_not_modified_and_duplicates_skipped (test_import_export.TestImportAndExport.test_original_not_modified_and_duplicates_skipped) ... ok
+test_empty_file (test_import_export.TestRead.test_empty_file) ... ok
+test_example_input (test_import_export.TestRead.test_example_input) ... ok
+test_flags_and_homog_parsers (test_import_export.TestRead.test_flags_and_homog_parsers) ... ok
+test_header_only (test_import_export.TestRead.test_header_only) ... ok
+test_mapping_validation (test_import_export.TestRead.test_mapping_validation) ... ok
+test_row_errors (test_import_export.TestRead.test_row_errors) ... ok
+test_semicolon_cp1251_decimal_comma (test_import_export.TestRead.test_semicolon_cp1251_decimal_comma) ... ok
+test_tab_delimiter (test_import_export.TestRead.test_tab_delimiter) ... ok
+test_unicode_minus_utf8 (test_import_export.TestRead.test_unicode_minus_utf8) ... ok
+test_xls_rejected (test_import_export.TestRead.test_xls_rejected) ... ok
+test_xlsx_and_sheets (test_import_export.TestRead.test_xlsx_and_sheets) ... ok
+test_empty_plot (test_plots_offline.TestWorkflowOffline.test_empty_plot) ... ok
+test_full_workflow_without_network (test_plots_offline.TestWorkflowOffline.test_full_workflow_without_network) ... ok
+test_th_salinity_points_use_mean_of_replicates (test_plots_offline.TestWorkflowOffline.test_th_salinity_points_use_mean_of_replicates) ... ok
+
+----------------------------------------------------------------------
+Ran 69 tests in 1.335s
+
+OK

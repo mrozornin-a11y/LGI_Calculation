@@ -1,6 +1,6 @@
 ﻿sample_id,inclusion_id,method,temperature_c,homogenization_to,liquid_co2_present,vapor_co2_present,aqueous_brine_present,co2_purity_confirmed,status,result_kind,value,unit,model,doi,note
 BR2,FI-01,bodnar,-5.0,,false,false,false,false,ok,NaCl-equivalent aqueous salinity,7.864625,wt% NaCl eq,Bodnar (1993),10.1016/0016-7037(93)90378-A,"Final ice melting is assigned to the H2O-NaCl ice-liquid branch. NaCl-equivalent wt% of aqueous solution, not identification of dissolved ions."
 BR2,FI-02,darling,5.8,,true,true,true,false,ok,NaCl-equivalent aqueous salinity,7.78031054,wt% NaCl eq,Darling (1991),10.1016/0016-7037(91)90079-K,"CO2-clathrate melts in the presence of liquid CO2, CO2 vapor, and brine. NaCl-equivalent wt% relative to aqueous-salt portion only; not bulk inclusion salinity."
-BR7,FI-03,co2,20.0,liquid,false,false,false,true,error,,,,,,Optional dependency CoolProp is required: python -m pip install CoolProp
-BR7,FI-04,co2,20.0,vapor,false,false,false,true,error,,,,,,Optional dependency CoolProp is required: python -m pip install CoolProp
+BR7,FI-03,co2,20.0,liquid,false,false,false,true,ok,pure CO2 saturated phase density,0.773386542,g/cm3,CoolProp HEOS / CO2,10.1063/1.555991,Only the pure-CO2 saturation state; not trapping P or bulk inclusion density. P_sat=57.29053 bar; molar volume=56.90531 cm3/mol; CoolProp=8.0.0
+BR7,FI-04,co2,20.0,vapor,false,false,false,true,ok,pure CO2 saturated phase density,0.194201601,g/cm3,CoolProp HEOS / CO2,10.1063/1.555991,Only the pure-CO2 saturation state; not trapping P or bulk inclusion density. P_sat=57.29053 bar; molar volume=226.61914 cm3/mol; CoolProp=8.0.0
 BR7,FI-05,co2,30.95,,false,false,false,true,error,,,,,,Homogenization branch must be explicitly 'liquid' or 'vapor'

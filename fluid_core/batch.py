@@ -14,23 +14,31 @@ def flag(raw: str) -> bool:
     if s in ('false','no','0','нет',''): return False
     raise ValueError('Expected boolean true/false, yes/no, 1/0, да/нет')
 
+def _normalise_row(row):
+    """Short CSV rows give None for missing cells; treat them as empty text.
+
+    Empty text is never replaced by an assumed value: the calculators reject it.
+    """
+    return {k: ('' if v is None else str(v)) for k, v in row.items() if k is not None}
+
 def calculate_row(row):
-    method = row['method'].strip().lower()
-    t = float(row['temperature_c'].replace(',', '.'))
+    row = _normalise_row(row)
+    method = row.get('method', '').strip().lower()
+    t = float(row.get('temperature_c', '').replace(',', '.'))
     if method == 'bodnar':
         r = bodnar_1993(t)
         return ('NaCl-equivalent aqueous salinity', r.salinity_wt_pct_nacl_eq,
                 'wt% NaCl eq', r.method, r.doi, r.assumption+' '+r.scope)
     if method == 'darling':
         r = darling_1991(t,
-            liquid_co2_present=flag(row['liquid_co2_present']),
-            vapor_co2_present=flag(row['vapor_co2_present']),
-            aqueous_brine_present=flag(row['aqueous_brine_present']))
+            liquid_co2_present=flag(row.get('liquid_co2_present', '')),
+            vapor_co2_present=flag(row.get('vapor_co2_present', '')),
+            aqueous_brine_present=flag(row.get('aqueous_brine_present', '')))
         return ('NaCl-equivalent aqueous salinity', r.salinity_wt_pct_nacl_eq,
                 'wt% NaCl eq', r.method, r.doi, r.assumption+' '+r.scope)
     if method == 'co2':
-        r = pure_co2_saturation(t,row['homogenization_to'].strip().lower(),
-            co2_purity_confirmed=flag(row['co2_purity_confirmed']))
+        r = pure_co2_saturation(t,row.get('homogenization_to', '').strip().lower(),
+            co2_purity_confirmed=flag(row.get('co2_purity_confirmed', '')))
         return ('pure CO2 saturated phase density',r.density_g_cm3,
                 'g/cm3',r.backend,'10.1063/1.555991',r.note + f' P_sat={r.saturation_pressure_bar:.5f} bar; molar volume={r.molar_volume_cm3_mol:.5f} cm3/mol; CoolProp={r.backend_version}')
     raise ValueError('Unknown method; use bodnar, darling or co2')
@@ -43,7 +51,7 @@ def run_csv(input_path, output_path):
         rows = list(reader)
     output=[]
     for row in rows:
-        record={h:row.get(h,'') for h in HEADERS}
+        record={h:(row.get(h) or '') for h in HEADERS}
         try:
             kind,val,unit,model,doi,note=calculate_row(row)
             record.update(status='ok',result_kind=kind,value=f'{val:.9g}',unit=unit,
