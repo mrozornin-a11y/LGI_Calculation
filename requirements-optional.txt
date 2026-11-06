@@ -1,0 +1,3 @@
+# Optional thermodynamic backend for pure CO2 only.
+# On modern Python versions use a compatible available CoolProp distribution.
+CoolProp>=6.6
