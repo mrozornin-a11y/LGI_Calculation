@@ -35,7 +35,7 @@ Original source set: Prokofyev & Samsonov (2022) textbook; laboratory method nar
 - Driesner & Heinrich (2007), Part I DOI 10.1016/j.gca.2006.01.033; Driesner (2007), Part II DOI 10.1016/j.gca.2007.05.026.
 - Steele-MacInnis (2018), DOI 10.1016/j.chemgeo.2018.08.022.
 - Mao et al. (2015), DOI 10.1016/j.apgeochem.2015.01.003.
-- Steele-MacInnis et al. (2011), DOI 10.1016/j.gca.2010.10.002.
+- Steele-MacInnis et al. (2011), DOI 10.1016/j.gca.2010.10.002 — система H₂O–NaCl–CaCl₂ (уточнение аудита 2026-11-06).
 - Liu et al. (2024) PyPitzer DOI 10.1016/j.chemgeo.2023.121863.
 
 ## A caution about changing CO₂ standards

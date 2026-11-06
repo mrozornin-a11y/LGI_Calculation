@@ -1,5 +1,5 @@
-FluidCalc — журнал автоматических тестов
-Дата: 2026-11-06 13:02:24 UTC
+FluidCalc — журнал автоматических проверок
+Дата: 2026-11-06 13:42:39 UTC
 Примечание: этот журнал получен в среде разработчика (Linux x86_64, glibc 2.39, Python 3.11.18 venv),
 а не на OSNova Onyx 2.7. Запустите ./run_tests.sh на целевой машине — файл будет перезаписан.
 Python:     3.11.18 (venv разработчика)
@@ -13,8 +13,9 @@ numpy       2.4.6
 scipy       1.17.1
 pandas      3.1.1
 Проверка CoolProp: ρ(CO₂, ж, 20 °C) = 0.773387 г/см³, P_sat = 57.2905 бар
-FluidCalc:  0.1.0; ядро fluid_core 0.2
+FluidCalc:  0.3.0; ядро fluid_core 0.2
 
+================ 1. Программные и регрессионные тесты (tests/) ================
 test_decimal_comma_quoted (test_batch.TestBatch.test_decimal_comma_quoted) ... ok
 test_example_input (test_batch.TestBatch.test_example_input) ... ok
 test_missing_column_rejected (test_batch.TestBatch.test_missing_column_rejected) ... ok
@@ -87,6 +88,57 @@ test_full_workflow_without_network (test_plots_offline.TestWorkflowOffline.test_
 test_th_salinity_points_use_mean_of_replicates (test_plots_offline.TestWorkflowOffline.test_th_salinity_points_use_mean_of_replicates) ... ok
 
 ----------------------------------------------------------------------
-Ran 69 tests in 1.335s
+Ran 69 tests in 1.462s
 
 OK
+
+================ 2. Научная валидация: тесты контрольных точек (validation/) ================
+test_equation_reproduction_never_marked_independent (validation.test_checkpoints.TestCheckpointFile.test_equation_reproduction_never_marked_independent) ... ok
+test_file_is_well_formed (validation.test_checkpoints.TestCheckpointFile.test_file_is_well_formed) ... ok
+test_matches_audit_source_file (validation.test_checkpoints.TestCheckpointFile.test_matches_audit_source_file)
+Каждая строка из приложенного аудиторского CSV перенесена без изменения значения. ... ok
+test_reproduction_points (validation.test_checkpoints.TestEquationReproduction.test_reproduction_points) ... ok
+test_ashrae_tolerance_is_coarse (validation.test_checkpoints.TestIndependentReferences.test_ashrae_tolerance_is_coarse)
+Честность отчёта: часть отклонений от ASHRAE больше интервала округления таблицы. ... ok
+test_bodnar_educational_example (validation.test_checkpoints.TestIndependentReferences.test_bodnar_educational_example) ... ok
+test_co2_ashrae_rounded_reference (validation.test_checkpoints.TestIndependentReferences.test_co2_ashrae_rounded_reference) ... ok
+test_report_generation (validation.test_checkpoints.TestRunner.test_report_generation) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.042s
+
+OK
+
+================ 3. Научная валидация: python -m validation ================
+PASS    BOD-LILLE-01  [независимая] отклонение -0.0371, допуск 0.05; грубые ошибки обнаруживаются 
+PASS    BOD-EQ-01     [пересчёт уравнения] отклонение +0, допуск 1e-06 
+PASS    BOD-EQ-02     [пересчёт уравнения] отклонение +1.78e-15, допуск 1e-06 
+PASS    DAR-EQ-01     [пересчёт уравнения] отклонение -4.56e-07, допуск 1e-06 
+PASS    DAR-EQ-02     [пересчёт уравнения] отклонение -1.25e-07, допуск 1e-06 
+PASS    DAR-EQ-03     [пересчёт уравнения] отклонение +1.8e-07, допуск 1e-06 
+PASS    CO2-ASH-P00   [независимая] отклонение +0.151, допуск 0.347; грубые ошибки обнаруживаются 
+PASS    CO2-ASH-RL00  [независимая] отклонение -0.568, допуск 9.28; грубые ошибки обнаруживаются (не разрешает: T + 1 °C) 
+PASS    CO2-ASH-RV00  [независимая] отклонение +0.647, допуск 0.97; грубые ошибки обнаруживаются 
+PASS    CO2-ASH-P10   [независимая] отклонение +0.122, допуск 0.449; грубые ошибки обнаруживаются 
+PASS    CO2-ASH-RL10  [независимая] отклонение -0.88, допуск 8.62; грубые ошибки обнаруживаются (не разрешает: T + 1 °C) 
+PASS    CO2-ASH-RV10  [независимая] отклонение +1.16, допуск 1.34; грубые ошибки обнаруживаются 
+PASS    CO2-ASH-P20   [независимая] отклонение +0.191, допуск 0.571; грубые ошибки обнаруживаются 
+PASS    CO2-ASH-RL20  [независимая] отклонение -1.61, допуск 7.75; грубые ошибки обнаруживаются 
+PASS    CO2-ASH-RV20  [независимая] отклонение +1.2, допуск 1.93; грубые ошибки обнаруживаются 
+Отчёт: /home/user/LGI_Calculation/validation/VALIDATION_REPORT.md
+Таблица: /home/user/LGI_Calculation/validation/validation_results.csv
+Итого: 15 точек; FAIL/ERROR 0; SKIPPED 0; не обнаружено грубых искажений 0; допусков, не разрешающих информационные искажения, 2
+Напоминание: пересчёт того же уравнения не является независимой экспериментальной проверкой.
+
+================ Сводка ================
+Программные тесты (tests/):
+  passed:  69
+  failed:  0
+  skipped: 0
+Тесты контрольных точек (validation/):
+  passed:  8
+  failed:  0
+  skipped: 0
+Отчёт о научной валидации: validation/VALIDATION_REPORT.md
+Напоминание: программные тесты и пересчёт тех же уравнений не являются независимой
+экспериментальной проверкой; см. docs/VALIDATION_STATUS.md.

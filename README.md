@@ -114,13 +114,29 @@ cd ~/FluidCalc
 ./run_tests.sh
 ```
 
-Тесты запускаются без дисплея (`QT_QPA_PLATFORM=offscreen`) во временном каталоге данных и не трогают рабочую
-базу. Полный журнал с версиями пишется в `docs/TEST_REPORT.txt`, в конце — сводка passed/failed/skipped.
+Запускаются программные тесты (`tests/`) и научная валидация (`validation/`) — без дисплея
+(`QT_QPA_PLATFORM=offscreen`), во временном каталоге данных, рабочая база не затрагивается. Полный журнал с версиями
+пишется в `docs/TEST_REPORT.txt`, в конце — раздельная сводка passed/failed/skipped по обоим наборам.
 Командная строка ядра (без GUI) по-прежнему доступна:
 
 ```bash
 ~/miniforge3/envs/fluidcalc/bin/python -m fluid_core examples/example_input.csv /tmp/results.csv
 ```
+
+## Научная валидация
+
+Отдельно от программных тестов в каталоге `validation/` хранятся контрольные точки с источниками, DOI/URL,
+классом свидетельства, точностью опорного значения и обоснованным допуском (`validation/checkpoints.csv`;
+исходные материалы аудита — `validation/sources/`). Запуск:
+
+```bash
+~/miniforge3/envs/fluidcalc/bin/python -m validation
+```
+
+Результат — `validation/VALIDATION_REPORT.md` и `validation/validation_results.csv`. Пересчёт тех же
+уравнений (Bodnar, Darling) показан отдельно и **не** считается независимой проверкой; экспериментальных
+контрольных точек пока нет. Статус выполненных и открытых проверок — `docs/VALIDATION_STATUS.md`.
+`./run_tests.sh` запускает оба набора и возвращает ненулевой код при любой ошибке.
 
 ## Структура
 
@@ -128,7 +144,8 @@ cd ~/FluidCalc
 fluid_core/          расчётное ядро v0.2 (формулы не изменялись)
 fluid_app/           приложение: calc.py (связь с ядром, паспорт), db.py (SQLite, миграции),
                      importer.py, exporter.py, plots.py, methods.py (справочник), gui/ (PySide6)
-tests/               автоматические тесты (unittest)
+tests/               программные и регрессионные тесты (unittest)
+validation/          научная валидация: контрольные точки, проверка, отчёт
 examples/            примеры входных файлов
 docs/                научный аудит, ТЗ, проверка ядра, статус валидации, журнал тестов
 fluidcalc.sh         запуск; install_desktop.sh / uninstall_desktop.sh — ярлыки KDE
@@ -138,7 +155,8 @@ tools/check_env.py   проверка окружения
 ## Документы
 
 * `docs/CORE_REVIEW.md` — результаты проверки расчётного ядра.
-* `docs/VALIDATION_STATUS.md` — **непройденные научные проверки и нереализованные модели**.
+* `docs/VALIDATION_STATUS.md` — **выполненные и открытые научные проверки, нереализованные модели**.
+* `validation/VALIDATION_REPORT.md` — автоматический отчёт о проверке контрольных точек.
 * `docs/SCIENTIFIC_AUDIT.md`, `docs/CLAUDE_CODE_TASK.md` — исходные научный аудит и ТЗ.
 * `docs/README_core_v02_en.md` — исходный README ядра 0.2.
 
