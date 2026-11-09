@@ -1,4 +1,4 @@
-id,method,temperature_c,quantity,unit,evidence_type,independence,expected,reference_uncertainty,computed,deviation,rel_deviation,tolerance,within_reference_rounding,status,app_layer_consistent,gross_error_controls_detected,message
+id,method,temperature_c,quantity,unit,evidence_type,independence,expected,reference_rounding_half_unit,computed,deviation,rel_deviation,tolerance,within_reference_rounding,status,app_layer_consistent,gross_error_controls_detected,message
 BOD-LILLE-01,Bodnar_1993,-3.4,salinity,wt_pct_NaCl_eq,independent_rounded_educational,implementation,5.6,0.05,5.562940328,-0.0370597,-0.0066178,0.05,True,PASS,True,True,
 BOD-EQ-01,Bodnar_1993,-5.0,salinity,wt_pct_NaCl_eq,equation_reproduction,none,7.864625,5e-07,7.864625,0,0,1e-06,True,PASS,True,,
 BOD-EQ-02,Bodnar_1993,-10.0,salinity,wt_pct_NaCl_eq,equation_reproduction,none,13.937,5e-07,13.937000000000001,1.77636e-15,1.27456e-16,1e-06,True,PASS,True,,

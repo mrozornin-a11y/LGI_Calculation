@@ -20,9 +20,9 @@ class TestCheckpointFile(unittest.TestCase):
         self.assertGreater(len(cps), 0)
         for cp in cps:
             self.assertGreater(cp.tolerance(), 0, cp.id)
-            if cp.reference_uncertainty is not None:
+            if cp.reference_rounding_half_unit is not None:
                 # допуск не может быть строже собственной точности опорного значения
-                self.assertGreaterEqual(cp.tolerance() + 1e-12, cp.reference_uncertainty, cp.id)
+                self.assertGreaterEqual(cp.tolerance() + 1e-12, cp.reference_rounding_half_unit, cp.id)
 
     def test_equation_reproduction_never_marked_independent(self):
         for cp in V.load_checkpoints():
@@ -93,13 +93,20 @@ class TestRunner(unittest.TestCase):
     def test_report_generation(self):
         import tempfile
         from pathlib import Path
-        from validation import report
+        from validation import datasets as D, report
         rs = V.evaluate_all()
+        hall, chen, nist = D.evaluate_hall(), D.evaluate_chen(), D.evaluate_nist()
+        rec = D.reconcile(hall + chen, nist)
         with tempfile.TemporaryDirectory() as d:
-            md = report.write_report(rs, Path(d) / 'r.md')
+            md = report.write_report(rs, hall, chen, nist, rec, Path(d) / 'r.md')
             text = md.read_text(encoding='utf-8')
             self.assertIn('НЕ независимая проверка', text)
             self.assertIn('Открытые вопросы', text)
+            self.assertIn('OPEN_VALIDATION_QUESTIONS.md', text)
+            self.assertIn('не являются** отложенной выборкой', text)
+            self.assertIn('SKIPPED: вне области ядра', text)
+            self.assertIn('**FAIL**', text)                 # открытое расхождение Hall не скрыто
+            self.assertIn('**несовместимо**', text)         # расхождения Chen с конвертом не скрыты
             self.assertIn('Ограничение разрешающей способности', text)
             csvp = report.write_results_csv(rs, Path(d) / 'r.csv')
             self.assertEqual(len(csvp.read_text(encoding='utf-8').splitlines()), len(rs) + 1)

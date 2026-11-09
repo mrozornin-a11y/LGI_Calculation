@@ -35,7 +35,7 @@ UNITS_RU = {'wt_pct_NaCl_eq': 'мас. % NaCl-экв.', 'bar': 'бар', 'kg_m3'
 QUANTITY_RU = {'salinity': 'солёность', 'pressure': 'P_sat', 'liquid_density': 'ρ жидкости',
                'vapor_density': 'ρ газа'}
 REQUIRED_COLUMNS = ('id', 'method', 'temperature_c', 'quantity', 'expected', 'unit', 'evidence_type',
-                    'independence', 'source', 'doi', 'url', 'reference_uncertainty', 'tolerance_abs',
+                    'independence', 'source', 'doi', 'url', 'reference_rounding_half_unit', 'tolerance_abs',
                     'tolerance_rel', 'tolerance_basis', 'comment')
 
 
@@ -52,7 +52,7 @@ class Checkpoint:
     source: str
     doi: str
     url: str
-    reference_uncertainty: float | None
+    reference_rounding_half_unit: float | None
     tolerance_abs: float | None
     tolerance_rel: float | None
     tolerance_basis: str
@@ -106,7 +106,7 @@ class Result:
 
     @property
     def within_rounding(self) -> bool | None:
-        u = self.checkpoint.reference_uncertainty
+        u = self.checkpoint.reference_rounding_half_unit
         if self.deviation is None or u is None:
             return None
         return abs(self.deviation) <= u + 1e-12
@@ -131,7 +131,7 @@ def load_checkpoints(path: Path = CHECKPOINTS_CSV) -> list[Checkpoint]:
             id=r['id'], method=r['method'], temperature_c=float(r['temperature_c']), quantity=r['quantity'],
             expected=float(r['expected']), unit=r['unit'], evidence_type=r['evidence_type'],
             independence=r['independence'], source=r['source'], doi=r['doi'], url=r['url'],
-            reference_uncertainty=_opt(r['reference_uncertainty']), tolerance_abs=_opt(r['tolerance_abs']),
+            reference_rounding_half_unit=_opt(r['reference_rounding_half_unit']), tolerance_abs=_opt(r['tolerance_abs']),
             tolerance_rel=_opt(r['tolerance_rel']), tolerance_basis=r['tolerance_basis'], comment=r['comment'])
         if cp.id in ids:
             raise ValueError(f'Повтор id {cp.id}')

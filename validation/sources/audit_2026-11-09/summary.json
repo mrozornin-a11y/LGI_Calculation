@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-09",
+  "python": "3.12.14",
+  "CoolProp": "8.0.0",
+  "hall": {
+    "rows": 22,
+    "pass": 20,
+    "outside": 1,
+    "max_abs_error": 0.06632701446400047
+  },
+  "chen": {
+    "rows": 57,
+    "pass": 55,
+    "outside": 2,
+    "max_abs_error": 0.5575297772093748,
+    "max_relative_pct": 5.586470713520789,
+    "mean_abs_relative_pct": 1.3196512776194336,
+    "outside_experimental_envelope": 17
+  },
+  "nist": {
+    "rows": 27,
+    "pass": 27
+  }
+}
