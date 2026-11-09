@@ -40,3 +40,13 @@
 3. Входные данные (температура, состав, ошибки источника, принятые значения) перенесены в
    `validation/data/*.csv` без расчётных столбцов аудитора; NIST читается напрямую из `nist_co2_raw.tsv`.
    Совпадение с архивом проверяет `validation/test_datasets.py`.
+
+## Эталонные прогоны программ авторов (2026-11-09)
+
+Пользователь выполнил в Excel входные наборы `validation/oracle/*_inputs.csv` в программах
+H2O-NaCl-CO2 (Steele-MacInnis, 2018) и HOKIEFLINCS_H2O-NACL (Steele-MacInnis et al., 2012) и вернул файл
+`validation/oracle/Эталонные_расчёты_результаты.xlsx` (SHA-256
+`d827d4ce3e7cec52976e9b12598e03ce6f8e5659d03f94907a35c23c9144b984`). Результаты перенесены без изменения в
+`validation/data/sm2018_oracle.csv` (41 случай) и `validation/data/hokieflincs_oracle.csv` (22 случая).
+Формулы HOKIEFLINCS прочитаны из присланной пользователем копии в формате .xlsx (SHA-256
+`64433e90710dccea7a124a02c27adf852b04131ece0e037c4002a9499bbf41db`); сама программа в репозиторий не включена.

@@ -1,5 +1,5 @@
 FluidCalc — журнал автоматических проверок
-Дата: 2026-11-09 09:47:44 UTC
+Дата: 2026-11-09 10:16:16 UTC
 Примечание: этот журнал получен в среде разработчика (Linux x86_64, glibc 2.39, Python 3.11.18 venv,
 CoolProp 8.0.0), а не на OSNova Onyx 2.7. Запустите ./run_tests.sh на целевой машине — файл будет перезаписан.
 Python:     3.11.18 (venv разработчика)
@@ -83,6 +83,20 @@ test_version (test_db.TestSchema.test_version) ... ok
 test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... ok
 test_observation_dialog (test_gui.TestMainWindow.test_observation_dialog) ... ok
 test_quick_calc (test_gui.TestMainWindow.test_quick_calc) ... ok
+test_critical_temperature (test_h2o_nacl.TestCore.test_critical_temperature) ... ok
+test_domain (test_h2o_nacl.TestCore.test_domain) ... ok
+test_isochore_and_trapping (test_h2o_nacl.TestCore.test_isochore_and_trapping) ... ok
+test_matches_hokieflincs_reference_run (test_h2o_nacl.TestCore.test_matches_hokieflincs_reference_run)
+Перенос формул: совпадение с программой авторов (прогон в Excel), машинная точность. ... ok
+test_pure_water_limit_vs_iapws95 (test_h2o_nacl.TestCore.test_pure_water_limit_vs_iapws95)
+Независимая проверка: при S = 0 давление Atkinson — в пределах 1 % от IAPWS-95 (50–370 °C). ... ok
+test_direction_not_assumed (test_h2o_nacl.TestDerived.test_direction_not_assumed) ... ok
+test_missing_salinity_and_duplicates (test_h2o_nacl.TestDerived.test_missing_salinity_and_duplicates) ... ok
+test_not_for_co2_inclusions (test_h2o_nacl.TestDerived.test_not_for_co2_inclusions) ... ok
+test_ok (test_h2o_nacl.TestDerived.test_ok) ... ok
+test_out_of_range_translated (test_h2o_nacl.TestDerived.test_out_of_range_translated) ... ok
+test_warnings (test_h2o_nacl.TestDerived.test_warnings) ... ok
+test_confirm_liquid_homogenization (test_h2o_nacl.TestLabImportOption.test_confirm_liquid_homogenization) ... ok
 test_database_dump (test_import_export.TestImportAndExport.test_database_dump) ... ok
 test_export_csv_and_xlsx (test_import_export.TestImportAndExport.test_export_csv_and_xlsx) ... ok
 test_hierarchy_conflict_reported (test_import_export.TestImportAndExport.test_hierarchy_conflict_reported) ... ok
@@ -112,7 +126,7 @@ test_full_workflow_without_network (test_plots_offline.TestWorkflowOffline.test_
 test_th_salinity_points_use_mean_of_replicates (test_plots_offline.TestWorkflowOffline.test_th_salinity_points_use_mean_of_replicates) ... ok
 
 ----------------------------------------------------------------------
-Ran 91 tests in 2.647s
+Ran 103 tests in 1.958s
 
 OK
 
@@ -149,9 +163,12 @@ test_new_discrepancy_is_flagged (validation.test_datasets.TestReconciliation.tes
 test_registry_matches_findings (validation.test_datasets.TestReconciliation.test_registry_matches_findings) ... ok
 test_vanished_discrepancy_is_flagged (validation.test_datasets.TestReconciliation.test_vanished_discrepancy_is_flagged)
 Если известное расхождение исчезло (например, после правки формулы или допуска), нужен пересмотр. ... ok
+test_all_ice_cases_match (validation.test_models.TestHokieFlincsTranscription.test_all_ice_cases_match) ... ok
+test_characterisation (validation.test_models.TestPureWater.test_characterisation) ... ok
+test_systematic_underestimate (validation.test_models.TestStage1VsSM2018.test_systematic_underestimate) ... ok
 
 ----------------------------------------------------------------------
-Ran 27 tests in 0.134s
+Ran 30 tests in 0.134s
 
 OK
 
@@ -202,6 +219,8 @@ OK
   Chen: max |Δ| 0.55753; max отн. 5.5865 % при +4.75 °C; среднее отн. 1.3197 %
 — NIST WebBook, насыщение CO₂
   PASS 27
+— Перенос H₂O–NaCl против HokieFlincs: PASS 20, FAIL 0, SKIPPED 2
+— Этап 1 против Steele-MacInnis (2018): n=36, отклонение -1.54…-0.05 %, среднее -0.64 %
 Отчёт: /home/user/LGI_Calculation/validation/VALIDATION_REPORT.md
 Таблицы: /home/user/LGI_Calculation/validation/results
 Итого: известных открытых расхождений 18; новых 0; не воспроизведённых известных 0; FAIL/ERROR вне реестра 0; SKIPPED 0; не обнаружено обязательных искажений 0
@@ -209,11 +228,11 @@ OK
 
 ================ Сводка ================
 Программные тесты (tests/):
-  passed:  91
+  passed:  103
   failed:  0
   skipped: 0
 Тесты контрольных точек (validation/):
-  passed:  27
+  passed:  30
   failed:  0
   skipped: 0
 Отчёт о научной валидации: validation/VALIDATION_REPORT.md

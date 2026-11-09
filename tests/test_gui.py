@@ -54,9 +54,11 @@ class TestMainWindow(unittest.TestCase):
         self.w.calculate(selected_only=False)
         self.w.wait_for_calculation()
         self.assertIsNotNone(self.w._run)
-        # 27 наблюдений + 4 производных результата «ρ включения» (у 4 включений есть Th CO₂)
-        self.assertEqual(self.w._run['n_total'], 31)
-        self.assertEqual(self.w.res_table.rowCount(), 31)
+        # 27 наблюдений + 4 «ρ включения» (включения с Th CO₂) + 6 «ρ, Ph H₂O–NaCl» (водно-солевые с Th общ.)
+        self.assertEqual(self.w._run['n_total'], 37)
+        self.assertEqual(self.w.res_table.rowCount(), 37)
+        aq = [r for r in self.w._results if r['kind'] == 'aq_pvt']
+        self.assertEqual(sorted(r['status'] for r in aq), ['error'] + ['ok'] * 5)   # Tm льда −24,5 °C вне области
         dens = [r for r in self.w._results if r['kind'] == 'bulk_density']
         self.assertEqual(len(dens), 4)
         self.assertTrue(all(r['status'] == 'error' for r in dens))   # φ не задана — расчёт заблокирован

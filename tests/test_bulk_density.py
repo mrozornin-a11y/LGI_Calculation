@@ -224,7 +224,8 @@ class TestStorage(unittest.TestCase):
         self.assertEqual(r12[13], 30.0)
         self.assertIsNotNone(r12[14])
         self.assertEqual(data[1][9], 'Bodnar (1993)')
-        self.assertTrue(any('Давление не рассчитывается' in str(r[0]) for r in rows))
+        self.assertTrue(any('давление не рассчитывается' in str(r[0]) for r in rows))   # для включений с CO₂
+        self.assertTrue(any('МИНИМАЛЬНОЕ давление' in str(r[0]) for r in rows))       # Ph водно-солевых
         db.close()
 
 

@@ -156,6 +156,46 @@ def _salinity_table(rows: list[SalinityRow], known_ids: set, printed_t: bool) ->
     return lines
 
 
+def _models_section() -> list[str]:
+    """Разделы 9–11: эталоны программ авторов, предел чистой воды, этап 1 против строгой модели."""
+    from . import models as M
+    L = ['', '## 9. Перенос модели H₂O–NaCl против программы авторов (HokieFlincs, прогон в Excel)', '',
+         'Эталон — результаты HOKIEFLINCS_H2O-NACL (Steele-MacInnis et al., 2012), полученные пользователем в Excel '
+         '(`validation/data/hokieflincs_oracle.csv`). Класс: reference_model_output — проверка ПЕРЕНОСА формул '
+         '(те же уравнения, независимая программа), а не независимая проверка модели. Допуск: относительное '
+         f'отклонение ≤ {M.TRANSCRIPTION_REL_TOL:g} (только машинное округление).', '',
+         '| Случай | Статус | max |отн. отклонение| | Примечание |', '|---|:-:|---:|---|']
+    for r in M.evaluate_hokieflincs():
+        mx = max((abs(d) for d in r.deviations.values()), default=None)
+        L.append(f'| {r.case} | {STATUS_RU.get(r.status, r.status)} | {"—" if mx is None else f"{mx:.1e}"} | '
+                 f'{r.reason or ", ".join(r.deviations)} |')
+    L += ['', '## 10. Предел чистой воды против IAPWS-95 (независимая характеристика)', '',
+          'Корреляции HokieFlincs при солёности 0 сравниваются с IAPWS-95 (CoolProp). Отклонения — свойство '
+          'опубликованных корреляций; формулы не изменялись.', '',
+          '| Th, °C | Ph Atkinson, бар | P IAPWS-95, бар | ΔP, % | ρ Bodnar (1983) | ρ IAPWS-95 | Δρ, % |',
+          '|---:|---:|---:|---:|---:|---:|---:|']
+    for r in M.evaluate_pure_water():
+        L.append(f'| {r.th_c:g} | {r.p_model:.3f} | {r.p_iapws:.3f} | {r.dp_pct:+.2f} | {r.rho_model:.4f} | '
+                 f'{r.rho_iapws:.4f} | {r.drho_pct:+.2f}{" (у Tc)" if r.near_critical else ""} |')
+    L += ['', 'Вывод: давление при Th согласуется с IAPWS-95 в пределах 1 %; плотность — в пределах 2 % вдали от '
+              'критической точки, но у критической точки воды (360–370 °C) завышена на 6–18 %. Программа '
+              'предупреждает, если Th ближе 30 °C к Tc(солёности).']
+    rows = M.evaluate_stage1_vs_sm2018()
+    st = M.stage1_statistics(rows)
+    L += ['', '## 11. Плотность этапа 1 (объёмный баланс) против строгой модели Steele-MacInnis (2018)', '',
+          'Эталон — программа H2O-NaCl-CO2 автора, прогон пользователем в Excel (`validation/data/sm2018_oracle.csv`), '
+          'режим 1 с долей углекислотной фазы при комнатной температуре (23,5 °C в программе автора). Это '
+          'характеристика упрощения, а не валидация: строгая модель учитывает растворённую CO₂ и составы фаз.', '',
+          f'Случаев: {st["n"]}. Отклонение упрощённой плотности: от {st["min"]:+.2f} до {st["max"]:+.2f} %, среднее '
+          f'{st["mean"]:+.2f} % (всегда ниже строгой модели). Солёность по уравнению Darling отличается от солёности '
+          f'модели Steele-MacInnis не более чем на {st["max_abs_dS"]:.3f} мас. %.', '',
+          '| Случай | Tm клатрата | Th CO₂ (ветвь) | φ, % | ρ этап 1 | ρ SM2018 | Δ, % |', '|---|---:|---|---:|---:|---:|---:|']
+    for r in sorted(rows, key=lambda x: x.dev_pct):
+        L.append(f'| {r.case} | {r.tm_clath:g} | {r.th_co2:g} ({r.branch}) | {r.phi_pct:g} | {r.rho_stage1:.4f} | '
+                 f'{r.rho_sm2018:.4f} | {r.dev_pct:+.2f} |')
+    return L
+
+
 def write_report(results: list[Result], hall: list[SalinityRow], chen: list[SalinityRow], nist: list[NistRow],
                  rec: Reconciliation, path: Path = REPORT_MD) -> Path:
     now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
@@ -347,6 +387,7 @@ def write_report(results: list[Result], hall: list[SalinityRow], chen: list[Sali
           '- **Span & Wagner (1996) / CoolProp.** Совпадение с NIST WebBook до последнего напечатанного разряда '
           'при −50…+30 °C (обе ветви). Это подтверждает реализацию и выбор ветвей, но не независимую точность EOS. '
           'Таблицы ASHRAE отличаются и от CoolProp, и от NIST (до ≈0,9 %).',
+          ] + _models_section() + [
           '', '## Открытые вопросы', '',
           f'Вынесены в отдельный документ `{OPEN_QUESTIONS_DOC}` (идентификаторы Q… используются в реестре '
           'расхождений).',

@@ -73,6 +73,15 @@ def main(argv=None) -> int:
             print(f'  {r.status} {r.id} {r.reason}')
     print('  ' + ', '.join(f'{k} {v}' for k, v in sorted(nc.items())))
 
+    from . import models as Mo
+    hokie = Mo.evaluate_hokieflincs()
+    print('— Перенос H₂O–NaCl против HokieFlincs: ' + ', '.join(
+        f'{k} {sum(r.status == k for r in hokie)}' for k in ('PASS', 'FAIL', 'SKIPPED')))
+    st = Mo.stage1_statistics(Mo.evaluate_stage1_vs_sm2018())
+    print(f'— Этап 1 против Steele-MacInnis (2018): n={st["n"]}, отклонение {st["min"]:+.2f}…{st["max"]:+.2f} %, '
+          f'среднее {st["mean"]:+.2f} %')
+    bad_models = [r for r in hokie if r.status == 'FAIL']
+
     if not args.no_write:
         write_report(results, hall, chen, nist, rec)
         write_results_csv(results)
@@ -90,7 +99,7 @@ def main(argv=None) -> int:
           f'не обнаружено обязательных искажений {len(undetected)}')
     print('Напоминание: калибровочные данные и пересчёт тех же уравнений не являются независимой '
           'валидацией прогностической точности моделей.')
-    return 1 if bad or undetected or not rec.ok or (args.strict and skipped) else 0
+    return 1 if bad or bad_models or undetected or not rec.ok or (args.strict and skipped) else 0
 
 
 if __name__ == '__main__':

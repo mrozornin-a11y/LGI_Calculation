@@ -179,12 +179,16 @@ def _make_row(r, cols, sample, layer, group, sheet_row) -> LabRow:
     return row
 
 
-def to_parsed_rows(table: LabTable, *, confirm_clathrate_phases: bool = False) -> list[ParsedRow]:
+def to_parsed_rows(table: LabTable, *, confirm_clathrate_phases: bool = False,
+                   confirm_aqueous_liquid_homogenization: bool = False) -> list[ParsedRow]:
     """Преобразовать в строки импорта FluidCalc.
 
     confirm_clathrate_phases — явное подтверждение оператора, что во включениях с CO₂ при окончательном
     плавлении клатрата сосуществовали жидкая CO₂, газовая CO₂ и раствор. По умолчанию не подтверждено:
     наличие этих фаз при комнатной температуре само по себе этого не доказывает.
+
+    confirm_aqueous_liquid_homogenization — явное подтверждение оператора, что водно-солевые включения (без CO₂)
+    гомогенизировались жидкость + пар → жидкость; нужно для плотности и Ph по H₂O–NaCl. По умолчанию не указано.
     """
     out = []
     for lr in table.rows:
@@ -204,6 +208,9 @@ def to_parsed_rows(table: LabTable, *, confirm_clathrate_phases: bool = False) -
                 obs.update(liquid_co2_present=True, vapor_co2_present=True, aqueous_brine_present=True,
                            comment=comment + '. Сосуществование фаз при плавлении клатрата подтверждено '
                                              'оператором при импорте')
+            if kind == 'Th_total' and confirm_aqueous_liquid_homogenization and not lr.co2_bearing:
+                obs.update(homogenization_to='liquid',
+                           comment=obs['comment'] + '. Гомогенизация в жидкость подтверждена оператором при импорте')
             p.observations.append(obs)
         if not p.observations and not p.errors:
             p.warnings.append('нет измерений')

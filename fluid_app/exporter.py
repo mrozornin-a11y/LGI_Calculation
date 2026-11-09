@@ -208,7 +208,8 @@ def export_observations_csv(path: str | Path, observations: list[dict], *, delim
 # --- Экспорт в формате лабораторной сводной таблицы («Таблица 1/2/3») ------------------------
 LAB_HEADERS = ['№ п/п', '№ вкл.', 'Th общ., °C', 'Тип включения', 'Tm CO₂, °C', 'Тэвт, °C', 'Tm клатрата, °C',
                'Tm льда, °C', 'Солёность, мас. % NaCl-экв.', 'Метод солёности', 'Th CO₂, °C', 'Гомог. CO₂',
-               'ρ CO₂, г/см³', 'φ CO₂, %', 'ρ включения, г/см³', 'Замечания']
+               'ρ CO₂, г/см³', 'φ CO₂, %', 'ρ включения, г/см³', 'Ph при Th (мин.), бар', 'dP/dT изохоры, бар/°C',
+               'Замечания']
 _HOMOG_SHORT = {'liquid': 'Ж', 'vapor': 'Г', 'critical': 'крит.'}
 
 
@@ -241,12 +242,17 @@ def _lab_rows(results: list[dict], inclusion_types: dict):
         dens = [x for x in rs if x['kind'] == 'bulk_density']
         phi = dens[0]['inputs'].get('carbonic_fraction') if dens else None
         rho_b = ok('bulk_density')[0]['value'] if ok('bulk_density') else None
+        aq = ok('aq_pvt')
+        ph = slope = None
+        if aq:
+            rho_b, ph, slope = aq[0]['value'], aq[0]['extras'].get('Ph_bar'), aq[0]['extras'].get('dPdT_bar_per_C')
         notes = [f'{kind_label(x["kind"])}: {x["message"]}' for x in rs if x['status'] == 'error' and x['message']]
         samples.setdefault(sample, []).append([
             inc, temps('Th_total'), inclusion_types.get((sample, inc), ''), temps('Tm_CO2'), temps('Te'),
             temps('Tm_clath'), temps('Tm_ice'), None if sal is None else round(sal, 2), method, temps('Th_CO2'),
             homog, None if rho_c is None else round(rho_c, 4), None if phi is None else round(100 * phi, 1),
-            None if rho_b is None else round(rho_b, 3), ' | '.join(notes)])
+            None if rho_b is None else round(rho_b, 3), None if ph is None else round(ph, 1),
+            None if slope is None else round(slope, 2), ' | '.join(notes)])
     return samples
 
 
@@ -288,11 +294,14 @@ def export_lab_format_xlsx(path, run: dict, results: list[dict], db: Database | 
             'направлению гомогенизации (Ж — в жидкость, Г — в газ).',
             'ρ включения — объёмный баланс фаз: φ·ρ(CO₂) + (1 − φ)·ρ(раствора NaCl при 20 °C, CRC). Растворённая CO₂ '
             'не учитывается; точность ограничена оценкой φ.',
-            'Давление не рассчитывается: сумма «парциальных» давлений CO₂ и воды термодинамически неверна; '
-            'корректная оценка требует PVTX-модели H₂O–CO₂–NaCl (этап 2, docs/ROADMAP.md).',
+            'Водно-солевые включения (H₂O–NaCl, гомогенизация в жидкость): ρ включения и Ph — HokieFlincs '
+            '(Atkinson, 2002; Bodnar, 1983; Bodnar & Vityk, 1994). Ph — давление при Th, т. е. МИНИМАЛЬНОЕ давление '
+            'захвата; давление захвата = Ph + dP/dT·(T захвата − Th) при независимой оценке T захвата.',
+            'Для включений с CO₂ давление не рассчитывается: сумма «парциальных» давлений CO₂ и воды термодинамически '
+            'неверна; корректная оценка — PVTX-модель H₂O–CO₂–NaCl (этап 2б, docs/ROADMAP.md).',
             'Th не является температурой образования без доказательства гетерогенного захвата в пределах FIA.'):
         ws.append([line])
-    widths = [7, 10, 9, 18, 9, 9, 10, 9, 12, 15, 9, 8, 10, 8, 11, 80]
+    widths = [7, 10, 9, 18, 9, 9, 10, 9, 12, 15, 9, 8, 10, 8, 11, 11, 11, 80]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[ws.cell(1, i).column_letter].width = w
     wb.save(str(path))

@@ -216,6 +216,13 @@ def passport_lines(inputs: dict, outcome: dict, run: dict | None = None,
                 rows.append((label, format_value(inputs[key], digits)))
         if inputs.get('homogenization_to'):
             rows.append(('Направление гомогенизации CO₂', HOMOGENIZATION.get(inputs['homogenization_to'], '')))
+    elif kind == 'aq_pvt':
+        rows.append(('Результат по включению', f'{kind_label(kind)} — {kind_title(kind)}'))
+        for key, label, digits in (('Tm_ice', 'Tm льда, °C', 2), ('salinity_wt_pct', 'Солёность, мас. % NaCl-экв.', 2),
+                                   ('Th_total', 'Th общ., °C', 1)):
+            if inputs.get(key) is not None:
+                rows.append((label, format_value(inputs[key], digits)))
+        rows.append(('Направление гомогенизации', HOMOGENIZATION.get(inputs.get('homogenization_to'), 'не указано')))
     else:
         rows.append(('Наблюдение', f'{kind_label(kind)} — {KINDS.get(kind, ("", ""))[1]}'))
         t = inputs.get('temperature_c')
@@ -244,6 +251,12 @@ def passport_lines(inputs: dict, outcome: dict, run: dict | None = None,
             rows.append(('Давление насыщения CO₂ P_sat, бар', format_value(ex['saturation_pressure_bar'], 4)))
             rows.append(('Мольный объём CO₂, см³/моль', format_value(ex['molar_volume_cm3_mol'], 4)))
             rows.append(('Ветвь насыщения', 'жидкость (Q = 0)' if ex.get('branch') == 'liquid' else 'газ (Q = 1)'))
+        if 'Ph_bar' in ex:
+            rows.append(('Давление при Th (Ph), бар', format_value(ex['Ph_bar'], 2) + ' — минимальное давление захвата'))
+            rows.append(('Наклон изохоры dP/dT, бар/°C', format_value(ex['dPdT_bar_per_C'], 3)))
+            rows.append(('Критическая температура раствора, °C', format_value(ex['Tc_C'], 1)))
+            if ex.get('isochore'):
+                rows.append(('Изохора (T, °C → P, бар)', '; '.join(f'{t:.0f} → {p:.0f}' for t, p in ex['isochore'])))
         if 'rho_at_phi_plus_u' in ex:
             rows.append(('Плотность при φ + u / φ − u', f'{format_value(ex["rho_at_phi_plus_u"], 4)} / '
                          f'{format_value(ex["rho_at_phi_minus_u"], 4)} г/см³ (чувствительность к оценке φ)'))
@@ -355,6 +368,77 @@ def _bulk_density_outcome(group: list[tuple[dict, Outcome]]) -> tuple[dict, Outc
     return pseudo, out
 
 
+AQ_NEAR_CRITICAL_C = 30.0         # предупреждать о плотности, если Th ближе 30 °C к Tc (см. сравнение с IAPWS-95)
+AQ_TE_OTHER_SALTS_C = -23.0       # Te ниже эвтектики H₂O–NaCl (−21,2 °C) с запасом → другие соли
+
+
+def _aqueous_outcome(group: list[tuple[dict, Outcome]]) -> tuple[dict, Outcome] | None:
+    """Этап 2a: включение H₂O–NaCl (без CO₂) — плотность, Ph при Th, изохора (HokieFlincs)."""
+    from fluid_core.h2o_nacl import homogenization_to_liquid
+    kinds = {o.get('kind') for o, _ in group}
+    if kinds & {'Th_CO2', 'Tm_clath', 'Tm_CO2'}:
+        return None                                   # углекислотное включение — не H₂O–NaCl
+    th_obs = [(o, r) for o, r in group if o.get('kind') == 'Th_total']
+    if not th_obs:
+        return None
+    obs0 = group[0][0]
+    ctx = {k: obs0.get(k) for k in ('project_name', 'sample_name', 'mineral_name', 'fia_name', 'inclusion_name',
+                                    'project_id', 'inclusion_id')}
+    pseudo = dict(ctx, id=None, kind='aq_pvt', temperature_c=None, uncertainty_c=None, homogenization_to=None,
+                  source='производный расчёт по включению')
+    meta = METHODS['h2o_nacl_hokieflincs']
+    base = dict(kind='aq_pvt', method_key='h2o_nacl_hokieflincs', model=meta['title'], doi=meta['doi'],
+                citation=meta['citation'])
+    extra: dict = {}
+
+    def fail(msg):
+        pseudo['extra_inputs'] = extra
+        return pseudo, Outcome('error', message=msg, **base)
+
+    if len(th_obs) > 1:
+        return fail('У включения несколько Th общ.; оставьте одно наблюдение — усреднение не выполняется.')
+    o_th = th_obs[0][0]
+    extra.update({'Th_total': o_th.get('temperature_c'), 'homogenization_to': o_th.get('homogenization_to')})
+    ice = [(o, r) for o, r in group if o.get('kind') == 'Tm_ice']
+    ice_ok = [(o, r) for o, r in ice if r.status == 'ok']
+    if not ice:
+        return fail('Нет Tm льда: солёность водно-солевого включения не определена.')
+    if not ice_ok:
+        return fail('Солёность по Tm льда не рассчитана (см. причину в строке Tm лёд).')
+    if len(ice_ok) > 1:
+        return fail('У включения несколько Tm льда; оставьте одно наблюдение.')
+    o_ice, r_ice = ice_ok[0]
+    s = r_ice.value
+    extra.update({'Tm_ice': o_ice.get('temperature_c'), 'salinity_wt_pct': s})
+    h = o_th.get('homogenization_to')
+    if h is None:
+        return fail('Не указано направление гомогенизации Th общ. Модель применима только к гомогенизации в '
+                    'жидкость; автоматически это не предполагается.')
+    if h != 'liquid':
+        return fail('Гомогенизация в газ или критическая: корреляции HokieFlincs (жидкая ветвь) неприменимы.')
+    try:
+        res = homogenization_to_liquid(o_th.get('temperature_c'), s, homogenization_to='liquid')
+    except (ValueError, TypeError) as exc:
+        return fail(translate_core_message(str(exc)))
+    out = Outcome('ok', value=res.density_g_cm3, unit='г/см³', result_kind=KIND_RESULT_LABEL['h2o_nacl_hokieflincs'],
+                  **base)
+    out.assumptions = ' '.join(meta['assumptions'])
+    out.scope = meta['range']
+    out.extras.update({'Ph_bar': res.pressure_bar, 'dPdT_bar_per_C': res.slope_bar_per_c,
+                       'Tc_C': res.critical_temperature_c, 'salinity_wt_pct': s, 'density_g_cm3': res.density_g_cm3,
+                       'isochore': [list(p) for p in res.isochore]})
+    out.warnings.append('Ph — давление при гомогенизации (минимальное давление захвата), а не давление захвата.')
+    if res.critical_temperature_c - res.th_c < AQ_NEAR_CRITICAL_C:
+        out.warnings.append(f'Th в {res.critical_temperature_c - res.th_c:.0f} °C от критической температуры: '
+                            'плотность по Bodnar (1983) здесь ненадёжна (для чистой воды до 18 % от IAPWS-95).')
+    te = [o.get('temperature_c') for o, _ in group if o.get('kind') == 'Te']
+    if any(t is not None and t < AQ_TE_OTHER_SALTS_C for t in te):
+        out.warnings.append('Te ниже эвтектики H₂O–NaCl: в растворе есть другие соли; свойства H₂O–NaCl — '
+                            'приближение NaCl-эквивалента.')
+    pseudo['extra_inputs'] = extra
+    return pseudo, out
+
+
 def derive_inclusion_results(items: list[tuple[dict, Outcome]]) -> list[tuple[dict, Outcome]]:
     """Производные результаты по включениям на основе уже рассчитанных наблюдений того же расчёта."""
     groups: dict = {}
@@ -364,9 +448,10 @@ def derive_inclusion_results(items: list[tuple[dict, Outcome]]) -> list[tuple[di
             groups.setdefault(key, []).append((obs, out))
     derived = []
     for group in groups.values():
-        r = _bulk_density_outcome(group)
-        if r is not None:
-            derived.append(r)
+        for fn in (_bulk_density_outcome, _aqueous_outcome):
+            r = fn(group)
+            if r is not None:
+                derived.append(r)
     return derived
 
 

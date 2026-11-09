@@ -731,7 +731,8 @@ class MainWindow(QMainWindow):
             return None
         samples = sorted({r.sample for r in table.rows})
         n_co2 = sum(r.co2_bearing and 'Tm_clath' in r.measurements for r in table.rows)
-        confirm = False
+        n_aq = sum((not r.co2_bearing) and 'Th_total' in r.measurements for r in table.rows)
+        confirm = confirm_aq = False
         if ask:
             names = [p['name'] for p in self.db.projects()]
             default = Path(path).stem
@@ -750,13 +751,22 @@ class MainWindow(QMainWindow):
                     'Подтверждаете это для всех таких включений? Если нет — солёность по клатрату будет '
                     'заблокирована до уточнения по журналу.',
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+            if n_aq:
+                confirm_aq = QMessageBox.question(
+                    self, 'Направление гомогенизации',
+                    f'У {n_aq} водно-солевых включений (без CO₂) есть Th общ., но направление гомогенизации в таблице '
+                    'не записано.\n\nПодтверждаете, что все они гомогенизировались в жидкость (Ж + Г → Ж)? '
+                    'Если нет — плотность и давление при Th для них будут заблокированы до уточнения.',
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
         else:
             name = Path(path).stem
         pid = self.db.get_or_create_project(name.strip())
-        parsed = to_parsed_rows(table, confirm_clathrate_phases=confirm)
+        parsed = to_parsed_rows(table, confirm_clathrate_phases=confirm,
+                                confirm_aqueous_liquid_homogenization=confirm_aq)
         rep = import_rows(self.db, pid, parsed, source=Path(path).name)
         self.db.log_import(pid, path, file_sha256(path), None, {'format': 'lab_table', 'clathrate_phases_confirmed':
-                                                                confirm}, rep.n_rows, rep.n_observations,
+                                                                confirm, 'aqueous_liquid_homogenization_confirmed':
+                                                                confirm_aq}, rep.n_rows, rep.n_observations,
                            rep.n_errors, rep.n_duplicates)
         log.info('Импорт лабораторной таблицы %s: %s', path, rep)
         self.refresh_all()
