@@ -32,6 +32,43 @@ NEAR_CRITICAL_C = 1.0          # предупреждать, если Th CO₂ �
 CO2_TM_IMPURITY_C = 0.4        # Tm CO₂ ниже тройной точки более чем на 0,4 °C → вероятны примеси
 
 
+POINTS_MATCH = 0.15            # совпадение с интерполяцией по точкам (округление до 0,1 + запас)
+_CHEN_POINTS: list[tuple[float, float]] | None = None
+
+
+def _chen_points() -> list[tuple[float, float]]:
+    """Экспериментальные точки Chen (1972) в редакции Darling (1991, табл. 1) + опорная точка +10 °C / 0 %.
+
+    Источник — validation/data/chen1972_darling.csv (перенос сверен аудитором по сканам). Повторяющиеся
+    температуры усредняются. Используется ТОЛЬКО для объяснения лабораторных значений, не для расчёта.
+    """
+    global _CHEN_POINTS
+    if _CHEN_POINTS is None:
+        import csv
+        from collections import defaultdict
+        from .paths import project_root
+        path = project_root() / 'validation' / 'data' / 'chen1972_darling.csv'
+        groups = defaultdict(list)
+        try:
+            with open(path, encoding='utf-8', newline='') as fh:
+                for r in csv.DictReader(fh):
+                    groups[float(r['temperature_c'])].append(float(r['expected_wt_pct']))
+        except OSError:
+            _CHEN_POINTS = []
+            return _CHEN_POINTS
+        groups[10.0].append(0.0)
+        _CHEN_POINTS = sorted((t, sum(v) / len(v)) for t, v in groups.items())
+    return _CHEN_POINTS
+
+
+def chen_points_salinity(t: float) -> float | None:
+    pts = _chen_points()
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if x0 <= t <= x1:
+            return y0 + (y1 - y0) * (t - x0) / (x1 - x0)
+    return None
+
+
 def brine_density_estimate(salinity_wt_pct: float) -> float:
     """Ориентировочная плотность раствора NaCl при 20 °C, г/см³ (аппроксимация справочных значений CRC:
     5 % — 1,034; 10 % — 1,071; 16 % — 1,116). Используется только как ориентир для проверки, не в расчётах."""
@@ -46,6 +83,8 @@ class RowCheck:
     lab_salinity: float | None = None
     calc_salinity: float | None = None
     salinity_status: str = ''        # согласуется / небольшое расхождение / существенное расхождение / нет данных
+    points_salinity: float | None = None   # интерполяция по экспериментальным точкам Chen/Darling (как табл. 9.3)
+    explained_by_points: bool = False      # расхождение с уравнением объясняется интерполяцией по точкам
     density_status: str = ''
     notes: list[str] = field(default_factory=list)
 
@@ -79,6 +118,14 @@ def check_row(r: LabRow) -> RowCheck:
         c.salinity_status = 'небольшое расхождение'
     else:
         c.salinity_status = 'существенное расхождение'
+    if 'Tm_clath' in m and c.calc_salinity is not None:
+        c.points_salinity = chen_points_salinity(m['Tm_clath'])
+        if (c.points_salinity is not None and c.lab_salinity is not None and c.salinity_status != 'согласуется'
+                and abs(c.lab_salinity - c.points_salinity) <= POINTS_MATCH):
+            c.explained_by_points = True
+            c.notes.append(f'Значение таблицы соответствует линейной интерполяции по экспериментальным точкам '
+                           f'Chen (1972) / Darling (1991, табл. 1) ({c.points_salinity:.2f}), а не уравнению Darling: '
+                           'методическое различие, а не арифметическая ошибка')
     if 'Tm_clath' in m and c.method.startswith('Darling'):
         c.notes.append('Darling: сосуществование жидкой CO₂, газовой CO₂ и раствора при плавлении клатрата в '
                        'таблице не зафиксировано; при пересчёте принято как условие уравнения')
@@ -115,6 +162,14 @@ def check_row(r: LabRow) -> RowCheck:
     return c
 
 
+def salinity_verdict(c: RowCheck) -> str:
+    if c.salinity_status in ('согласуется', 'нет данных'):
+        return c.salinity_status
+    if c.explained_by_points:
+        return 'по экспериментальным точкам (табл. 9.3), не по уравнению'
+    return c.salinity_status
+
+
 def internal_inconsistencies(checks: list[RowCheck]) -> list[str]:
     """Одинаковая входная температура (тем же методом) → разные значения солёности в таблице.
 
@@ -148,27 +203,30 @@ def write_comparison_xlsx(table: LabTable, path) -> None:
     ws.title = 'Сверка'
     head = ['Образец', 'Пласт', 'Группа', 'Включение', 'Тип', 'Th общ., °C', 'Te, °C', 'Tm CO₂, °C', 'Tm клатрат, °C',
             'Tm лёд, °C', 'Th CO₂, °C', 'Метод пересчёта', 'С% лаборатории', 'С% FluidCalc', 'Разность (лаб − расчёт)',
-            'Солёность', 'd фл лаборатории, г/см³', 'Плотность: проверка', 'Р фл лаборатории, бар', 'Замечания']
+            'Солёность', 'С% по точкам Chen/Darling (как табл. 9.3)', 'd фл лаборатории, г/см³', 'Плотность: проверка',
+            'Р фл лаборатории, бар', 'Замечания']
     ws.append(head)
     for cell in ws[1]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(wrap_text=True, vertical='top')
-    fills = {'согласуется': 'E2F0D9', 'небольшое расхождение': 'FFF2CC', 'существенное расхождение': 'F8D7DA'}
+    fills = {'согласуется': 'E2F0D9', 'небольшое расхождение': 'FFF2CC', 'существенное расхождение': 'F8D7DA',
+             'по экспериментальным точкам (табл. 9.3), не по уравнению': 'DDEBF7'}
     for c in checks:
         r, m = c.row, c.row.measurements
         d = r.lab_results.get('lab_density')
         ws.append([r.sample, r.layer, r.group, r.inclusion, r.inclusion_type, m.get('Th_total'), m.get('Te'),
                    m.get('Tm_CO2'), m.get('Tm_clath'), m.get('Tm_ice'), m.get('Th_CO2'), c.method, c.lab_salinity,
                    None if c.calc_salinity is None else round(c.calc_salinity, 3),
-                   None if c.delta is None else round(c.delta, 3), c.salinity_status,
+                   None if c.delta is None else round(c.delta, 3), salinity_verdict(c),
+                   None if c.points_salinity is None else round(c.points_salinity, 3),
                    d[1] if isinstance(d, tuple) else d, c.density_status, r.lab_results.get('lab_pressure'),
                    ' | '.join(c.notes)])
         row = ws.max_row
-        if c.salinity_status in fills:
-            ws.cell(row, 16).fill = PatternFill('solid', fgColor=fills[c.salinity_status])
+        if salinity_verdict(c) in fills:
+            ws.cell(row, 16).fill = PatternFill('solid', fgColor=fills[salinity_verdict(c)])
         if c.density_status.startswith(('физически', 'невозможно', 'нечисл')):
-            ws.cell(row, 18).fill = PatternFill('solid', fgColor='F8D7DA')
-    widths = [8, 8, 10, 10, 16, 8, 8, 8, 8, 8, 8, 22, 9, 9, 10, 18, 10, 40, 10, 90]
+            ws.cell(row, 19).fill = PatternFill('solid', fgColor='F8D7DA')
+    widths = [8, 8, 10, 10, 16, 8, 8, 8, 8, 8, 8, 22, 9, 9, 10, 22, 12, 10, 40, 10, 90]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[ws.cell(1, i).column_letter].width = w
     ws.freeze_panes = 'E2'
@@ -176,8 +234,9 @@ def write_comparison_xlsx(table: LabTable, path) -> None:
     s = wb.create_sheet('Итоги')
     s.append(['Показатель', 'Значение'])
     sal = [c for c in checks if c.delta is not None]
-    for status in ('согласуется', 'небольшое расхождение', 'существенное расхождение'):
-        s.append([f'Солёность: {status}', sum(c.salinity_status == status for c in sal)])
+    for status in ('согласуется', 'по экспериментальным точкам (табл. 9.3), не по уравнению',
+                   'небольшое расхождение', 'существенное расхождение'):
+        s.append([f'Солёность: {status}', sum(salinity_verdict(c) == status for c in sal)])
     dens = [c for c in checks if c.density_status]
     s.append(['Плотность: значений', len(dens)])
     s.append(['Плотность: физически невозможных / нечисловых',

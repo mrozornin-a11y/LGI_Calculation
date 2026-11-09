@@ -109,6 +109,20 @@ class TestLabTable(unittest.TestCase):
         self.assertEqual(len(incons), 1)
         self.assertIn('8.5', incons[0])
 
+    def test_table_interpolation_is_distinguished_from_error(self):
+        from fluid_app.lab_table import LabRow
+        def row(t, lab):
+            return LabRow('S', '', '', 1, 1, 'x', 'Ж+(Ж+Г)СО2', 'СО2', '', '', {'Tm_clath': t},
+                          {'lab_salinity': lab})
+        c = lab_compare.check_row(row(-0.7, 16.1))       # уравнение 16,37; точки Chen/Darling 16,19
+        self.assertTrue(c.explained_by_points)
+        self.assertEqual(lab_compare.salinity_verdict(c), 'по экспериментальным точкам (табл. 9.3), не по уравнению')
+        c = lab_compare.check_row(row(8.5, 6.7))         # ни уравнение (3,02), ни точки (2,97)
+        self.assertFalse(c.explained_by_points)
+        self.assertEqual(lab_compare.salinity_verdict(c), 'существенное расхождение')
+        c = lab_compare.check_row(row(-0.7, 16.37))      # совпадает с уравнением
+        self.assertEqual(lab_compare.salinity_verdict(c), 'согласуется')
+
     def test_comparison_xlsx(self):
         from openpyxl import load_workbook
         out = Path(self.tmp.name) / 'cmp.xlsx'

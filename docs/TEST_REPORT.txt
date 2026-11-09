@@ -1,5 +1,5 @@
 FluidCalc — журнал автоматических проверок
-Дата: 2026-11-09 08:26:51 UTC
+Дата: 2026-11-09 09:15:53 UTC
 Примечание: этот журнал получен в среде разработчика (Linux x86_64, glibc 2.39, Python 3.11.18 venv,
 CoolProp 8.0.0), а не на OSNova Onyx 2.7. Запустите ./run_tests.sh на целевой машине — файл будет перезаписан.
 Python:     3.11.18 (venv разработчика)
@@ -89,13 +89,14 @@ test_import_into_database (test_lab_table.TestLabTable.test_import_into_database
 test_parse_blocks_and_columns (test_lab_table.TestLabTable.test_parse_blocks_and_columns) ... ok
 test_parsed_rows_do_not_guess (test_lab_table.TestLabTable.test_parsed_rows_do_not_guess) ... ok
 test_source_not_modified (test_lab_table.TestLabTable.test_source_not_modified) ... ok
+test_table_interpolation_is_distinguished_from_error (test_lab_table.TestLabTable.test_table_interpolation_is_distinguished_from_error) ... ok
 test_gui_import (test_lab_table.TestLabTableGui.test_gui_import) ... ok
 test_empty_plot (test_plots_offline.TestWorkflowOffline.test_empty_plot) ... ok
 test_full_workflow_without_network (test_plots_offline.TestWorkflowOffline.test_full_workflow_without_network) ... ok
 test_th_salinity_points_use_mean_of_replicates (test_plots_offline.TestWorkflowOffline.test_th_salinity_points_use_mean_of_replicates) ... ok
 
 ----------------------------------------------------------------------
-Ran 76 tests in 2.360s
+Ran 77 tests in 2.400s
 
 OK
 
@@ -134,7 +135,7 @@ test_vanished_discrepancy_is_flagged (validation.test_datasets.TestReconciliatio
 Если известное расхождение исчезло (например, после правки формулы или допуска), нужен пересмотр. ... ok
 
 ----------------------------------------------------------------------
-Ran 27 tests in 0.121s
+Ran 27 tests in 0.157s
 
 OK
 
@@ -192,7 +193,7 @@ OK
 
 ================ Сводка ================
 Программные тесты (tests/):
-  passed:  76
+  passed:  77
   failed:  0
   skipped: 0
 Тесты контрольных точек (validation/):

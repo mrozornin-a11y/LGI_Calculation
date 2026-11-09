@@ -755,7 +755,7 @@ class MainWindow(QMainWindow):
         return rep
 
     def compare_lab_table(self):
-        from ..lab_compare import compare, write_comparison_xlsx
+        from ..lab_compare import compare, salinity_verdict, write_comparison_xlsx
         from ..lab_table import read_lab_table
         src, _ = QFileDialog.getOpenFileName(self, 'Лабораторная таблица для сверки', str(Path.home()),
                                              'Excel (*.xlsx *.xlsm)')
@@ -775,10 +775,12 @@ class MainWindow(QMainWindow):
             log.exception('Ошибка сверки %s', src)
             QMessageBox.critical(self, 'Сверка', str(exc))
             return
-        major = [c for c in checks if c.salinity_status == 'существенное расхождение']
-        minor = sum(c.salinity_status == 'небольшое расхождение' for c in checks)
+        major = [c for c in checks if salinity_verdict(c) == 'существенное расхождение']
+        minor = sum(salinity_verdict(c) == 'небольшое расхождение' for c in checks)
+        by_points = sum(c.explained_by_points for c in checks)
         dens = sum(c.density_status.startswith(('физически', 'невозможно', 'нечисл')) for c in checks)
-        text = (f'Включений: {len(checks)}.\nСолёность: существенных расхождений {len(major)}, небольших {minor}.\n'
+        text = (f'Включений: {len(checks)}.\nСолёность: существенных расхождений {len(major)}, небольших {minor}; '
+                f'посчитано по экспериментальным точкам вместо уравнения {by_points}.\n'
                 f'Плотность флюида: физически невозможных или нечисловых значений {dens}.\n'
                 f'Внутренних несогласованностей таблицы: {len(incons)}.\n')
         for c in major[:10]:

@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fluid_app.lab_compare import compare, write_comparison_xlsx  # noqa: E402
+from fluid_app.lab_compare import compare, salinity_verdict, write_comparison_xlsx  # noqa: E402
 from fluid_app.lab_table import read_lab_table  # noqa: E402
 
 
@@ -24,12 +24,12 @@ def main(argv):
     write_comparison_xlsx(table, argv[2])
     from collections import Counter
     print(f'Включений: {len(table.rows)}')
-    print('Солёность:', dict(Counter(c.salinity_status for c in checks)))
+    print('Солёность:', dict(Counter(salinity_verdict(c) for c in checks)))
     bad = [c for c in checks if c.density_status.startswith(('физически', 'невозможно', 'нечисл'))]
     print(f'Плотность: невозможных/нечисловых значений {bad and len(bad) or 0} из '
           f'{sum(bool(c.density_status) for c in checks)}')
     for c in checks:
-        if c.salinity_status == 'существенное расхождение':
+        if salinity_verdict(c) == 'существенное расхождение':
             print(f'  {c.row.sample} {c.row.inclusion}: {c.method} T={c.input_t:g} → расчёт {c.calc_salinity:.2f}, '
                   f'в таблице {c.lab_salinity:g}')
     for x in incons:
