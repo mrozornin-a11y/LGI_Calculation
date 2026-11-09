@@ -1,5 +1,5 @@
 FluidCalc — журнал автоматических проверок
-Дата: 2026-11-09 09:15:53 UTC
+Дата: 2026-11-09 09:47:44 UTC
 Примечание: этот журнал получен в среде разработчика (Linux x86_64, glibc 2.39, Python 3.11.18 venv,
 CoolProp 8.0.0), а не на OSNova Onyx 2.7. Запустите ./run_tests.sh на целевой машине — файл будет перезаписан.
 Python:     3.11.18 (venv разработчика)
@@ -20,6 +20,22 @@ test_decimal_comma_quoted (test_batch.TestBatch.test_decimal_comma_quoted) ... o
 test_example_input (test_batch.TestBatch.test_example_input) ... ok
 test_missing_column_rejected (test_batch.TestBatch.test_missing_column_rejected) ... ok
 test_short_row_does_not_crash_batch (test_batch.TestBatch.test_short_row_does_not_crash_batch) ... ok
+test_matches_lab_table_9_9 (test_bulk_density.TestBrineDensity.test_matches_lab_table_9_9)
+Интерполяция совпадает с независимо полученными значениями табл. 9.9 лабораторной методики. ... ok
+test_monotonic_and_range (test_bulk_density.TestBrineDensity.test_monotonic_and_range) ... ok
+test_nodes_and_water (test_bulk_density.TestBrineDensity.test_nodes_and_water) ... ok
+test_against_steele_macinnis_2018_cached_example (test_bulk_density.TestBulkDensity.test_against_steele_macinnis_2018_cached_example)
+Сравнение упрощённого объёмного баланса со строгой моделью Steele-MacInnis (2018). ... ok
+test_blocked_without_inputs (test_bulk_density.TestBulkDensity.test_blocked_without_inputs) ... ok
+test_hand_calculation (test_bulk_density.TestBulkDensity.test_hand_calculation) ... ok
+test_impurity_warning (test_bulk_density.TestBulkDensity.test_impurity_warning) ... ok
+test_no_derived_result_for_aqueous_inclusion (test_bulk_density.TestBulkDensity.test_no_derived_result_for_aqueous_inclusion) ... ok
+test_passport (test_bulk_density.TestBulkDensity.test_passport) ... ok
+test_phi_uncertainty_range (test_bulk_density.TestBulkDensity.test_phi_uncertainty_range) ... ok
+test_import_and_export_fraction (test_bulk_density.TestStorage.test_import_and_export_fraction) ... ok
+test_lab_format_export (test_bulk_density.TestStorage.test_lab_format_export) ... ok
+test_migration_from_v1_keeps_data_and_backs_up (test_bulk_density.TestStorage.test_migration_from_v1_keeps_data_and_backs_up) ... ok
+test_set_fraction (test_bulk_density.TestStorage.test_set_fraction) ... ok
 test_snapshot (test_calc.TestCoolPropRegression.test_snapshot) ... ok
 test_bodnar_identical_to_core (test_calc.TestDispatch.test_bodnar_identical_to_core) ... ok
 test_bodnar_out_of_range_blocked (test_calc.TestDispatch.test_bodnar_out_of_range_blocked) ... ok
@@ -96,7 +112,7 @@ test_full_workflow_without_network (test_plots_offline.TestWorkflowOffline.test_
 test_th_salinity_points_use_mean_of_replicates (test_plots_offline.TestWorkflowOffline.test_th_salinity_points_use_mean_of_replicates) ... ok
 
 ----------------------------------------------------------------------
-Ran 77 tests in 2.400s
+Ran 91 tests in 2.647s
 
 OK
 
@@ -135,7 +151,7 @@ test_vanished_discrepancy_is_flagged (validation.test_datasets.TestReconciliatio
 Если известное расхождение исчезло (например, после правки формулы или допуска), нужен пересмотр. ... ok
 
 ----------------------------------------------------------------------
-Ran 27 tests in 0.157s
+Ran 27 tests in 0.134s
 
 OK
 
@@ -193,7 +209,7 @@ OK
 
 ================ Сводка ================
 Программные тесты (tests/):
-  passed:  77
+  passed:  91
   failed:  0
   skipped: 0
 Тесты контрольных точек (validation/):

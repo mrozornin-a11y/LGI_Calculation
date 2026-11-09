@@ -1,0 +1,23 @@
+case,Tm,phase,Th,trap_mode,trap_value
+HF01,-0.5,ice,150.0,,
+HF02,-0.5,ice,250.0,,
+HF03,-0.5,ice,350.0,,
+HF04,-2.0,ice,150.0,,
+HF05,-2.0,ice,250.0,,
+HF06,-2.0,ice,350.0,,
+HF07,-5.0,ice,150.0,,
+HF08,-5.0,ice,250.0,,
+HF09,-5.0,ice,350.0,,
+HF10,-10.0,ice,150.0,,
+HF11,-10.0,ice,250.0,,
+HF12,-10.0,ice,350.0,,
+HF13,-15.0,ice,150.0,,
+HF14,-15.0,ice,250.0,,
+HF15,-15.0,ice,350.0,,
+HF16,-20.0,ice,150.0,,
+HF17,-20.0,ice,250.0,,
+HF18,-20.0,ice,350.0,,
+HF19,200.0,halite,300.0,,
+HF20,300.0,halite,350.0,,
+HF21,-5.0,ice,250.0,temperature estimate,400.0
+HF22,-5.0,ice,250.0,pressure estimate,1000.0

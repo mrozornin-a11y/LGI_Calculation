@@ -12,9 +12,11 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFile
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QCheckBox)
 
 from .. import APP_TITLE, __version__
-from ..calc import Outcome, backend_versions, calculate_observation, passport_lines, format_value
+from ..calc import (Outcome, backend_versions, calculate_observation, derive_inclusion_results, passport_lines,
+                    format_value)
 from ..db import Database, DatabaseError
-from ..exporter import (export_database_xlsx, export_observations_csv, export_results_csv, export_results_xlsx)
+from ..exporter import (export_database_xlsx, export_lab_format_xlsx, export_observations_csv, export_results_csv,
+                        export_results_xlsx)
 from ..methods import (HOMOGENIZATION, KINDS, METHODS, STATUS_RU, kind_label, methods_html)
 from ..paths import default_db_path, log_file_path, project_root
 from ..plots import GROUP_BY, PLOT_TYPES, make_figure, save_figure
@@ -46,6 +48,7 @@ class CalcWorker(QObject):
                 out.append((obs, calculate_observation(obs)))
                 if i % 10 == 0 or i == n:
                     self.progress.emit(i, n)
+            out += derive_inclusion_results(out)       # плотность включения и др. по включению
             self.finished.emit(out)
         except Exception as exc:  # noqa: BLE001
             log.exception('Сбой расчёта')
@@ -428,6 +431,8 @@ class MainWindow(QMainWindow):
                 n = counts.get(inc['id'], 0)
                 total += n
                 label = inc['name'] + (f'  [{inc["inclusion_type"]}]' if inc['inclusion_type'] else '')
+                if inc['carbonic_fraction'] is not None:
+                    label += f'  φ={100 * inc["carbonic_fraction"]:g}%'.replace('.', ',')
                 node(parent, label, dict(base, level='inclusion', id=inc['id'], name=inc['name']), n)
             return total
 
@@ -510,6 +515,7 @@ class MainWindow(QMainWindow):
                 menu.addAction('Добавить включение…', self.add_inclusion)
             if lvl == 'inclusion':
                 menu.addAction('Добавить наблюдение…', self.add_observation)
+                menu.addAction('Доля углекислотной фазы…', self.edit_carbonic_fraction)
             menu.addSeparator()
             menu.addAction('Рассчитать выбранное', lambda: self.calculate(True))
             if lvl != 'mineral_none':
@@ -577,6 +583,18 @@ class MainWindow(QMainWindow):
                 if self._guard(self.db.add_inclusion, n['sample_id'], name, n.get('mineral_id'),
                                n.get('fia_id'), itype):
                     self.refresh_tree()
+
+    def edit_carbonic_fraction(self):
+        from .dialogs import CarbonicFractionDialog
+        n = self.selected_node()
+        if not n or n['level'] != 'inclusion':
+            QMessageBox.information(self, 'Доля углекислотной фазы', 'Выберите включение в дереве.')
+            return
+        inc = self.db.inclusion(n['id'])
+        dlg = CarbonicFractionDialog(self, self._inclusion_label(n['id']), inc)
+        if dlg.exec() and dlg.result is not None:
+            self._guard(self.db.set_carbonic_fraction, n['id'], *dlg.result)
+            self.refresh_tree()
 
     _TABLES = {'project': 'projects', 'sample': 'samples', 'mineral': 'minerals', 'fia': 'fias',
                'inclusion': 'inclusions'}
@@ -813,7 +831,8 @@ class MainWindow(QMainWindow):
             return
         default = Path.home() / f'fluidcalc-расчёт-{self._run["id"]}.xlsx'
         path, flt = QFileDialog.getSaveFileName(self, 'Экспорт результатов', str(default),
-                                                'Excel с паспортами (*.xlsx);;CSV для русской локали (; и запятая) (*.csv);;'
+                                                'Excel с паспортами (*.xlsx);;Сводная таблица в формате лаборатории (*.xlsx);;'
+                                                'CSV для русской локали (; и запятая) (*.csv);;'
                                                 'CSV международный (, и точка) (*.csv)')
         if not path:
             return
@@ -822,7 +841,10 @@ class MainWindow(QMainWindow):
             if 'xlsx' in flt:
                 if not path.lower().endswith('.xlsx'):
                     path += '.xlsx'
-                export_results_xlsx(path, self._run, results)
+                if 'лаборатории' in flt:
+                    export_lab_format_xlsx(path, self._run, results, self.db)
+                else:
+                    export_results_xlsx(path, self._run, results)
             else:
                 if not path.lower().endswith('.csv'):
                     path += '.csv'

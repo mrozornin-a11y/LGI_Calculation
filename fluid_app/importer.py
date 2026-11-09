@@ -48,6 +48,13 @@ TARGET_FIELDS: dict[str, tuple[str, tuple[str, ...]]] = {
     'aqueous_brine_present': ('Водный раствор присутствует', ('aqueous_brine_present', 'brine', 'водный раствор')),
     'co2_purity_confirmed': ('Приближение чистой CO₂ принято', ('co2_purity_confirmed', 'pure_co2',
                                                                  'чистая co2')),
+    'carbonic_fraction': ('Доля углекислотной фазы φ, %', ('carbonic_fraction_pct', 'carbonic_fraction', 'phi_co2',
+                                                         'φ', 'phi', 'доля co2', 'доля углекислоты',
+                                                         'доля углекислотной фазы')),
+    'carbonic_fraction_unc': ('Погрешность φ ±, %', ('carbonic_fraction_unc_pct', 'carbonic_fraction_unc', 'phi_unc',
+                                                      'погрешность φ', 'погрешность доли')),
+    'carbonic_fraction_method': ('Способ оценки φ', ('carbonic_fraction_method', 'phi_method', 'способ оценки φ',
+                                                     'способ оценки доли')),
     'phase_notes': ('Описание фаз', ('phase_notes', 'phases', 'фазы', 'фазовый состав', 'описание фаз')),
     'comment': ('Комментарий', ('comment', 'comments', 'note', 'notes', 'комментарий', 'примечание')),
 }
@@ -99,6 +106,7 @@ class ParsedRow:
     inclusion: str = ''
     inclusion_type: str = ''
     observations: list[dict] = field(default_factory=list)
+    inclusion_props: dict = field(default_factory=dict)   # свойства включения (φ и др.)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -312,6 +320,20 @@ def parse_rows(table: Table, mapping: dict[str, str | None]) -> list[ParsedRow]:
                 common['uncertainty_c'] = u
             except ValueError as exc:
                 p.errors.append(f'{label}: {exc}')
+        for key, label in (('carbonic_fraction', 'доля углекислотной фазы'), ('carbonic_fraction_unc', 'погрешность φ')):
+            try:
+                v = parse_number(cell(row, key))
+                if v is not None:
+                    if not 0 <= v <= 100:
+                        raise ValueError('должна быть от 0 до 100 %')
+                    p.inclusion_props[key] = v / 100
+            except ValueError as exc:
+                p.errors.append(f'{label}: {exc}')
+        if cell(row, 'carbonic_fraction_method'):
+            p.inclusion_props['carbonic_fraction_method'] = cell(row, 'carbonic_fraction_method')
+        if p.inclusion_props and 'carbonic_fraction' not in p.inclusion_props:
+            p.warnings.append('погрешность/способ оценки φ без самой φ — не сохраняются')
+            p.inclusion_props = {}
         for key in FLAG_KEYS:
             try:
                 common[key] = parse_flag(cell(row, key))
@@ -401,6 +423,16 @@ def import_rows(db: Database, project_id: int, parsed: list[ParsedRow], *, sourc
                         (fia_id is not None and inc['fia_id'] != fia_id):
                     raise DatabaseError(f'включение «{p.inclusion}» уже существует с другим минералом/FIA')
                 inc_id = inc['id']
+            props = p.inclusion_props
+            if props.get('carbonic_fraction') is not None:
+                cur = db.inclusion(inc_id)
+                if cur['carbonic_fraction'] is None:
+                    db.set_carbonic_fraction(inc_id, props['carbonic_fraction'], props.get('carbonic_fraction_unc'),
+                                             props.get('carbonic_fraction_method'), None)
+                elif abs(cur['carbonic_fraction'] - props['carbonic_fraction']) > 1e-9:
+                    rep.messages.append(f'Строка {p.row_number}: φ включения «{p.inclusion}» уже задана '
+                                        f'({100 * cur["carbonic_fraction"]:g} %), значение файла '
+                                        f'({100 * props["carbonic_fraction"]:g} %) не применено')
             added = 0
             for obs in p.observations:
                 obs = dict(obs, source=f'{source}, строка {p.row_number}')

@@ -185,7 +185,8 @@ def export_observations_csv(path: str | Path, observations: list[dict], *, delim
     path = Path(path)
     headers = ['sample_id', 'mineral', 'fia', 'inclusion_id', 'inclusion_type', 'kind', 'temperature_c',
                'uncertainty_c', 'homogenization_to', 'liquid_co2_present', 'vapor_co2_present',
-               'aqueous_brine_present', 'co2_purity_confirmed', 'phase_notes', 'comment']
+               'aqueous_brine_present', 'co2_purity_confirmed', 'phase_notes', 'comment', 'carbonic_fraction_pct',
+               'carbonic_fraction_unc_pct', 'carbonic_fraction_method']
     with path.open('w', encoding='utf-8-sig', newline='') as fh:
         w = csv.writer(fh, delimiter=delimiter)
         w.writerow(headers)
@@ -197,5 +198,102 @@ def export_observations_csv(path: str | Path, observations: list[dict], *, delim
                         '' if o['uncertainty_c'] is None else repr(o['uncertainty_c']),
                         o['homogenization_to'] or '', fl(o['liquid_co2_present']), fl(o['vapor_co2_present']),
                         fl(o['aqueous_brine_present']), fl(o['co2_purity_confirmed']),
-                        o['phase_notes'] or '', o['comment'] or ''])
+                        o['phase_notes'] or '', o['comment'] or '',
+                        '' if o.get('carbonic_fraction') is None else repr(100 * o['carbonic_fraction']),
+                        '' if o.get('carbonic_fraction_unc') is None else repr(100 * o['carbonic_fraction_unc']),
+                        o.get('carbonic_fraction_method') or ''])
+    return path
+
+
+# --- Экспорт в формате лабораторной сводной таблицы («Таблица 1/2/3») ------------------------
+LAB_HEADERS = ['№ п/п', '№ вкл.', 'Th общ., °C', 'Тип включения', 'Tm CO₂, °C', 'Тэвт, °C', 'Tm клатрата, °C',
+               'Tm льда, °C', 'Солёность, мас. % NaCl-экв.', 'Метод солёности', 'Th CO₂, °C', 'Гомог. CO₂',
+               'ρ CO₂, г/см³', 'φ CO₂, %', 'ρ включения, г/см³', 'Замечания']
+_HOMOG_SHORT = {'liquid': 'Ж', 'vapor': 'Г', 'critical': 'крит.'}
+
+
+def _natural_key(s: str):
+    import re
+    return [int(x) if x.isdigit() else x for x in re.split(r'(\d+)', s or '')]
+
+
+def _lab_rows(results: list[dict], inclusion_types: dict):
+    by_inc: dict = {}
+    for r in results:
+        by_inc.setdefault((r['sample_name'], r['inclusion_name']), []).append(r)
+    samples: dict = {}
+    for (sample, inc), rs in by_inc.items():
+        def temps(kind):
+            vals = [x['inputs'].get('temperature_c') for x in rs if x['kind'] == kind]
+            vals = [v for v in vals if v is not None]
+            return '; '.join(f'{v:g}' for v in vals) if len(vals) > 1 else (vals[0] if vals else None)
+
+        def ok(kind):
+            return [x for x in rs if x['kind'] == kind and x['status'] == 'ok']
+        sal, method = None, ''
+        if ok('Tm_clath'):
+            sal, method = ok('Tm_clath')[0]['value'], 'Darling (1991)'
+        elif ok('Tm_ice'):
+            sal, method = ok('Tm_ice')[0]['value'], 'Bodnar (1993)'
+        co2 = [x for x in rs if x['kind'] == 'Th_CO2']
+        homog = '; '.join(_HOMOG_SHORT.get(x['inputs'].get('homogenization_to'), '?') for x in co2)
+        rho_c = ok('Th_CO2')[0]['value'] if len(ok('Th_CO2')) == 1 else None
+        dens = [x for x in rs if x['kind'] == 'bulk_density']
+        phi = dens[0]['inputs'].get('carbonic_fraction') if dens else None
+        rho_b = ok('bulk_density')[0]['value'] if ok('bulk_density') else None
+        notes = [f'{kind_label(x["kind"])}: {x["message"]}' for x in rs if x['status'] == 'error' and x['message']]
+        samples.setdefault(sample, []).append([
+            inc, temps('Th_total'), inclusion_types.get((sample, inc), ''), temps('Tm_CO2'), temps('Te'),
+            temps('Tm_clath'), temps('Tm_ice'), None if sal is None else round(sal, 2), method, temps('Th_CO2'),
+            homog, None if rho_c is None else round(rho_c, 4), None if phi is None else round(100 * phi, 1),
+            None if rho_b is None else round(rho_b, 3), ' | '.join(notes)])
+    return samples
+
+
+def export_lab_format_xlsx(path, run: dict, results: list[dict], db: Database | None = None) -> Path:
+    """Результаты расчёта в раскладке лабораторной сводной таблицы: блок на образец, пересчитанные столбцы.
+
+    Давление в таблице отсутствует намеренно (метод суммы парциальных давлений не используется)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+
+    path = Path(path)
+    types = {}
+    if db is not None:
+        for row in db._all('SELECT s.name AS s, i.name AS i, i.inclusion_type AS t FROM inclusions i '
+                           'JOIN samples s ON s.id = i.sample_id'):
+            types[(row['s'], row['i'])] = row['t'] or ''
+    samples = _lab_rows(results, types)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Сводная таблица'
+    bold = Font(bold=True)
+    ws.append([f'Расчёт № {run["id"]} от {run["created_at"]} UTC; FluidCalc {run["app_version"]}, ядро '
+               f'{run["core_version"]}, CoolProp {run["coolprop_version"]}'])
+    for sample in sorted(samples, key=_natural_key):
+        ws.append([])
+        ws.append([f'Образец {sample}'])
+        ws.cell(ws.max_row, 1).font = bold
+        ws.append(LAB_HEADERS)
+        for c in ws[ws.max_row]:
+            c.font = bold
+            c.alignment = Alignment(wrap_text=True, vertical='top')
+        for n, row in enumerate(sorted(samples[sample], key=lambda r: _natural_key(r[0])), start=1):
+            ws.append([n] + row)
+    ws.append([])
+    for line in (
+            'Солёность: Bodnar (1993) по Tm льда; Darling (1991) по Tm клатрата — по уравнению, а не по табличным '
+            'точкам. Значения — NaCl-эквивалент, не химический анализ.',
+            'ρ CO₂ — плотность чистой CO₂ на линии насыщения при Th CO₂ (Span & Wagner, 1996) по записанному '
+            'направлению гомогенизации (Ж — в жидкость, Г — в газ).',
+            'ρ включения — объёмный баланс фаз: φ·ρ(CO₂) + (1 − φ)·ρ(раствора NaCl при 20 °C, CRC). Растворённая CO₂ '
+            'не учитывается; точность ограничена оценкой φ.',
+            'Давление не рассчитывается: сумма «парциальных» давлений CO₂ и воды термодинамически неверна; '
+            'корректная оценка требует PVTX-модели H₂O–CO₂–NaCl (этап 2, docs/ROADMAP.md).',
+            'Th не является температурой образования без доказательства гетерогенного захвата в пределах FIA.'):
+        ws.append([line])
+    widths = [7, 10, 9, 18, 9, 9, 10, 9, 12, 15, 9, 8, 10, 8, 11, 80]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[ws.cell(1, i).column_letter].width = w
+    wb.save(str(path))
     return path

@@ -54,8 +54,12 @@ class TestMainWindow(unittest.TestCase):
         self.w.calculate(selected_only=False)
         self.w.wait_for_calculation()
         self.assertIsNotNone(self.w._run)
-        self.assertEqual(self.w._run['n_total'], 27)
-        self.assertEqual(self.w.res_table.rowCount(), 27)
+        # 27 наблюдений + 4 производных результата «ρ включения» (у 4 включений есть Th CO₂)
+        self.assertEqual(self.w._run['n_total'], 31)
+        self.assertEqual(self.w.res_table.rowCount(), 31)
+        dens = [r for r in self.w._results if r['kind'] == 'bulk_density']
+        self.assertEqual(len(dens), 4)
+        self.assertTrue(all(r['status'] == 'error' for r in dens))   # φ не задана — расчёт заблокирован
         self.w.res_table.selectRow(0)
         self.assertIn('Паспорт', self.w.passport.toHtml())
         self.w.plot_type.setCurrentIndex(0)

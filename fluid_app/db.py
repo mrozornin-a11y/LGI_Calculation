@@ -98,6 +98,15 @@ MIGRATIONS: list[str] = [
         file_name TEXT, file_sha256 TEXT, sheet TEXT, mapping_json TEXT,
         n_rows INTEGER, n_imported INTEGER, n_errors INTEGER, n_duplicates INTEGER);
     """,
+    # v2 — объёмная доля углекислотной фазы включения (оценка при комнатной температуре)
+    """
+    ALTER TABLE inclusions ADD COLUMN carbonic_fraction REAL
+        CHECK(carbonic_fraction IS NULL OR (carbonic_fraction >= 0 AND carbonic_fraction <= 1));
+    ALTER TABLE inclusions ADD COLUMN carbonic_fraction_unc REAL
+        CHECK(carbonic_fraction_unc IS NULL OR (carbonic_fraction_unc >= 0 AND carbonic_fraction_unc <= 1));
+    ALTER TABLE inclusions ADD COLUMN carbonic_fraction_method TEXT;
+    ALTER TABLE inclusions ADD COLUMN carbonic_fraction_temp_c REAL;
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -256,6 +265,23 @@ class Database:
     def find_inclusion(self, sample_id: int, name: str) -> sqlite3.Row | None:
         return self._one('SELECT * FROM inclusions WHERE sample_id=? AND name=?', (sample_id, name.strip()))
 
+    def inclusion(self, inclusion_id: int) -> sqlite3.Row | None:
+        return self._one('SELECT * FROM inclusions WHERE id=?', (inclusion_id,))
+
+    def set_carbonic_fraction(self, inclusion_id: int, fraction: float | None, uncertainty: float | None = None,
+                              method: str | None = None, temperature_c: float | None = None) -> None:
+        """Объёмная доля углекислотной фазы (жидкая + газовая CO₂), доли единицы 0…1. None — не определена."""
+        if fraction is not None and not 0 <= fraction <= 1:
+            raise DatabaseError('Доля углекислотной фазы должна быть от 0 до 100 %.')
+        if uncertainty is not None and not 0 <= uncertainty <= 1:
+            raise DatabaseError('Погрешность доли должна быть от 0 до 100 %.')
+        if fraction is None:
+            uncertainty = method = temperature_c = None
+        with self.conn:
+            self.conn.execute('UPDATE inclusions SET carbonic_fraction=?, carbonic_fraction_unc=?, '
+                              'carbonic_fraction_method=?, carbonic_fraction_temp_c=? WHERE id=?',
+                              (fraction, uncertainty, method or None, temperature_c, inclusion_id))
+
     def inclusions(self, sample_id: int, mineral_id: int | None, fia_id: int | None) -> list[sqlite3.Row]:
         return self._all('SELECT * FROM inclusions WHERE sample_id=? AND mineral_id IS ? AND fia_id IS ? '
                          'ORDER BY name COLLATE NOCASE', (sample_id, mineral_id, fia_id))
@@ -334,6 +360,7 @@ class Database:
             for obs, o in items:
                 inputs = {k: obs.get(k) for k in ('kind', 'temperature_c', 'uncertainty_c', 'homogenization_to',
                                                   *OBS_FLAG_COLUMNS, 'phase_notes', 'comment', 'source')}
+                inputs.update(obs.get('extra_inputs') or {})       # входы производных расчётов по включению
                 self.conn.execute(
                     'INSERT INTO results(run_id, observation_id, project_name, sample_name, mineral_name, fia_name, '
                     'inclusion_name, kind, inputs_json, status, method_key, result_kind, value, unit, extras_json, '
@@ -387,6 +414,7 @@ class Database:
 
 _OBS_CONTEXT_SQL = """
 SELECT o.*, i.name AS inclusion_name, i.inclusion_type, i.sample_id, i.mineral_id, i.fia_id,
+       i.carbonic_fraction, i.carbonic_fraction_unc, i.carbonic_fraction_method, i.carbonic_fraction_temp_c,
        s.name AS sample_name, s.project_id, p.name AS project_name,
        m.name AS mineral_name, f.name AS fia_name
 FROM observations o

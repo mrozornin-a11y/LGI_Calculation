@@ -385,3 +385,63 @@ class TextDialog(QDialog):
         bb = QDialogButtonBox(QDialogButtonBox.Close)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+
+
+PHI_METHODS = ['визуальная оценка', 'подсчёт площадей', 'другое']
+
+
+class CarbonicFractionDialog(QDialog):
+    """Объёмная доля углекислотной фазы (жидкая + газовая CO₂) включения при комнатной температуре."""
+
+    def __init__(self, parent, inclusion_label: str, inc):
+        super().__init__(parent)
+        self.setWindowTitle('Доля углекислотной фазы')
+        self.setMinimumWidth(520)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel(f'<b>Включение:</b> {inclusion_label}'))
+        form = QFormLayout()
+        self.value = NumberEdit(placeholder='%, напр. 30 (пусто — не определена)')
+        self.unc = NumberEdit(placeholder='± %, напр. 10')
+        self.method = QComboBox()
+        self.method.setEditable(True)
+        self.method.addItems(PHI_METHODS)
+        self.temp = NumberEdit(placeholder='°C, напр. 22 (комнатная)')
+        form.addRow('φ, % объёма включения', self.value)
+        form.addRow('Погрешность ±, %', self.unc)
+        form.addRow('Способ оценки', self.method)
+        form.addRow('Температура оценки, °C', self.temp)
+        lay.addLayout(form)
+        hint = QLabel('φ — доля всей углекислотной фазы (жидкая + газовая CO₂) в объёме включения. Используется '
+                      'для плотности включения по объёмному балансу; основная неопределённость результата — именно φ.')
+        hint.setWordWrap(True)
+        hint.setStyleSheet('color:#52514e')
+        lay.addWidget(hint)
+        if inc is not None and inc['carbonic_fraction'] is not None:
+            self.value.set_value(100 * inc['carbonic_fraction'])
+            if inc['carbonic_fraction_unc'] is not None:
+                self.unc.set_value(100 * inc['carbonic_fraction_unc'])
+            if inc['carbonic_fraction_method']:
+                self.method.setCurrentText(inc['carbonic_fraction_method'])
+            if inc['carbonic_fraction_temp_c'] is not None:
+                self.temp.set_value(inc['carbonic_fraction_temp_c'])
+        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Save).setText('Сохранить')
+        bb.button(QDialogButtonBox.Cancel).setText('Отмена')
+        bb.accepted.connect(self._accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        self.result = None
+
+    def _accept(self):
+        try:
+            v, u, t = self.value.value(), self.unc.value(), self.temp.value()
+            if v is not None and not 0 <= v <= 100:
+                raise ValueError('φ должна быть от 0 до 100 %')
+            if u is not None and not 0 <= u <= 100:
+                raise ValueError('погрешность должна быть от 0 до 100 %')
+        except ValueError as exc:
+            QMessageBox.warning(self, 'Ошибка ввода', str(exc))
+            return
+        self.result = (None if v is None else v / 100, None if u is None else u / 100,
+                       self.method.currentText().strip() or None, t)
+        self.accept()
