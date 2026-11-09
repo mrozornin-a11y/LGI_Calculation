@@ -149,6 +149,10 @@ class MainWindow(QMainWindow):
         self.a_import = self._act('Импорт CSV / Excel…', self.import_file, 'Ctrl+I',
                                   'Пакетный импорт измерений с картой полей и предпросмотром')
         self.a_example = self._act('Загрузить пример (examples/example_input.csv)', self.load_example)
+        self.a_lab_import = self._act('Импорт лабораторной таблицы («Таблица 1/2/3»)…', self.import_lab_table,
+                                      tip='Сводная таблица лаборатории: блоки по образцам с двухстрочной шапкой')
+        self.a_lab_compare = self._act('Сверка лабораторной таблицы с расчётом…', self.compare_lab_table,
+                                       tip='Пересчёт солёности и проверка плотностей таблицы; отчёт в XLSX')
         self.a_export_obs = self._act('Экспорт таблицы измерений (CSV)…', self.export_observations)
         self.a_export_res = self._act('Экспорт результатов…', self.export_results, 'Ctrl+E')
         self.a_quit = self._act('Выход', self.close, 'Ctrl+Q')
@@ -161,7 +165,8 @@ class MainWindow(QMainWindow):
         self.a_about = self._act('О программе', self.about)
 
         m = self.menuBar().addMenu('&Файл')
-        for a in (self.a_new_db, self.a_open_db, None, self.a_import, self.a_example, None, self.a_export_obs,
+        for a in (self.a_new_db, self.a_open_db, None, self.a_import, self.a_lab_import, self.a_lab_compare,
+                  self.a_example, None, self.a_export_obs,
                   self.a_export_res, None, self.a_backup, self.a_dump, None, self.a_quit):
             m.addSeparator() if a is None else m.addAction(a)
         m = self.menuBar().addMenu('&Данные')
@@ -688,6 +693,97 @@ class MainWindow(QMainWindow):
                            n['project_id'] if n else None)
         if dlg.exec():
             self.refresh_all()
+
+    def import_lab_table(self, path: str | None = None, *, ask: bool = True):
+        """Импорт сводной таблицы лаборатории. Возвращает ImportReport или None."""
+        from ..importer import file_sha256, import_rows
+        from ..lab_table import read_lab_table, to_parsed_rows
+        if not isinstance(path, str) or not path:
+            path, _ = QFileDialog.getOpenFileName(self, 'Лабораторная таблица', str(Path.home()), 'Excel (*.xlsx *.xlsm)')
+            if not path:
+                return None
+        try:
+            table = read_lab_table(path)
+        except Exception as exc:  # noqa: BLE001
+            log.exception('Ошибка чтения лабораторной таблицы %s', path)
+            QMessageBox.critical(self, 'Лабораторная таблица', f'Не удалось прочитать файл:\n{exc}')
+            return None
+        if not table.rows:
+            QMessageBox.warning(self, 'Лабораторная таблица', '\n'.join(table.warnings) or 'Строки не найдены.')
+            return None
+        samples = sorted({r.sample for r in table.rows})
+        n_co2 = sum(r.co2_bearing and 'Tm_clath' in r.measurements for r in table.rows)
+        confirm = False
+        if ask:
+            names = [p['name'] for p in self.db.projects()]
+            default = Path(path).stem
+            name, ok = QInputDialog.getItem(self, 'Импорт лабораторной таблицы',
+                                            f'Найдено включений: {len(table.rows)} (образцы: {", ".join(samples)}).\n'
+                                            'Проект для импорта (можно ввести новое название):',
+                                            names + ([default] if default not in names else []),
+                                            len(names) if default not in names else names.index(default), True)
+            if not ok or not name.strip():
+                return None
+            if n_co2:
+                confirm = QMessageBox.question(
+                    self, 'Условие уравнения Darling',
+                    f'У {n_co2} включений с CO₂ есть Tm клатрата. В таблице не записано, сосуществовали ли при '
+                    'окончательном плавлении клатрата жидкая CO₂, газовая CO₂ и раствор (условие Darling, 1991).\n\n'
+                    'Подтверждаете это для всех таких включений? Если нет — солёность по клатрату будет '
+                    'заблокирована до уточнения по журналу.',
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+        else:
+            name = Path(path).stem
+        pid = self.db.get_or_create_project(name.strip())
+        parsed = to_parsed_rows(table, confirm_clathrate_phases=confirm)
+        rep = import_rows(self.db, pid, parsed, source=Path(path).name)
+        self.db.log_import(pid, path, file_sha256(path), None, {'format': 'lab_table', 'clathrate_phases_confirmed':
+                                                                confirm}, rep.n_rows, rep.n_observations,
+                           rep.n_errors, rep.n_duplicates)
+        log.info('Импорт лабораторной таблицы %s: %s', path, rep)
+        self.refresh_all()
+        if ask:
+            text = (f'Импортировано наблюдений: {rep.n_observations} (включений: {rep.n_rows_imported}).\n'
+                    f'Строк с ошибками: {rep.n_errors}; дубликатов пропущено: {rep.n_duplicates}.\n\n'
+                    'Результаты лаборатории (С%, d фл, Р фл) не импортированы как измерения — они сохранены в '
+                    'комментариях наблюдений; для сравнения используйте «Сверка лабораторной таблицы».\n'
+                    'Направление гомогенизации CO₂ в таблице не записано: плотность CO₂ будет заблокирована до '
+                    'его ввода (двойной щелчок по наблюдению Th CO₂).')
+            if table.warnings or rep.messages:
+                text += '\n\n' + '\n'.join(table.warnings + rep.messages[:20])
+            QMessageBox.information(self, 'Импорт завершён', text)
+        return rep
+
+    def compare_lab_table(self):
+        from ..lab_compare import compare, write_comparison_xlsx
+        from ..lab_table import read_lab_table
+        src, _ = QFileDialog.getOpenFileName(self, 'Лабораторная таблица для сверки', str(Path.home()),
+                                             'Excel (*.xlsx *.xlsm)')
+        if not src:
+            return
+        dst, _ = QFileDialog.getSaveFileName(self, 'Сохранить сверку', str(Path(src).with_name(Path(src).stem + '-сверка.xlsx')),
+                                             'Excel (*.xlsx)')
+        if not dst:
+            return
+        if not dst.lower().endswith('.xlsx'):
+            dst += '.xlsx'
+        try:
+            table = read_lab_table(src)
+            checks, incons = compare(table)
+            write_comparison_xlsx(table, dst)
+        except Exception as exc:  # noqa: BLE001
+            log.exception('Ошибка сверки %s', src)
+            QMessageBox.critical(self, 'Сверка', str(exc))
+            return
+        major = [c for c in checks if c.salinity_status == 'существенное расхождение']
+        minor = sum(c.salinity_status == 'небольшое расхождение' for c in checks)
+        dens = sum(c.density_status.startswith(('физически', 'невозможно', 'нечисл')) for c in checks)
+        text = (f'Включений: {len(checks)}.\nСолёность: существенных расхождений {len(major)}, небольших {minor}.\n'
+                f'Плотность флюида: физически невозможных или нечисловых значений {dens}.\n'
+                f'Внутренних несогласованностей таблицы: {len(incons)}.\n')
+        for c in major[:10]:
+            text += f'\n• {c.row.sample} {c.row.inclusion}: расчёт {c.calc_salinity:.2f}, в таблице {c.lab_salinity:g}'
+        QMessageBox.information(self, 'Сверка сохранена', text + f'\n\nФайл: {dst}')
 
     def load_example(self):
         path = project_root() / 'examples' / 'example_input.csv'
