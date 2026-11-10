@@ -32,5 +32,27 @@ class TestStage1VsSM2018(unittest.TestCase):
         self.assertLess(st['max_abs_dS'], 0.01)                           # Darling ≈ солёность модели SM2018
 
 
+class TestCo2Duan1992(unittest.TestCase):
+    """Этап 2б, часть 1: независимая характеристика уравнения Duan et al. (1992a) по Span & Wagner (1996)."""
+    def test_against_span_wagner(self):
+        st = V.co2_statistics(V.evaluate_co2_duan1992())
+        self.assertEqual(st['n'], 126)
+        self.assertLess(st['core_dv'], 1.1)            # 0–500 °C, до 3 кбар: объём в пределах 1,1 %
+        self.assertLess(st['core_dphi'], 4.0)          # там же φ: до 4 % (жидкая CO₂ при 0 °C)
+        self.assertLess(st['all_dv'], 3.5)             # вся заявленная область
+        self.assertLess(st['all_dphi'], 6.0)
+        self.assertGreater(st['cold_dphi'], 5.0)       # ниже 0 °C — экстраполяция, заметно хуже (зафиксировано)
+
+    def test_author_scheme_features(self):
+        st = V.co2_statistics(V.evaluate_co2_duan1992())
+        self.assertGreater(st['author_liquid_dphi'], 1.0)                 # сдвиг φ в схеме автора
+        self.assertEqual(st['author_other_root'], [(700.0, 8000.0)])      # нефизичный корень при 8 кбар
+
+    def test_saturation_inconsistency_is_recorded(self):
+        rows = V.evaluate_co2_saturation()
+        self.assertTrue(all(abs(r.p_eq / r.p_sw - 1) < 5e-4 for r in rows))
+        self.assertTrue(any(abs(r.p_duan_liquid / r.p_eq - 1) > 0.05 for r in rows))
+
+
 if __name__ == '__main__':
     unittest.main()

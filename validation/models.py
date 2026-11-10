@@ -139,3 +139,117 @@ def stage1_statistics(rows: list[Stage1Row]) -> dict:
     d = [r.dev_pct for r in rows]
     ds = [abs(r.s_darling - r.s_sm2018) for r in rows]
     return {'n': len(d), 'min': min(d), 'max': max(d), 'mean': statistics.mean(d), 'max_abs_dS': max(ds)}
+
+
+# --- Этап 2б, часть 1: чистая CO₂ по Duan et al. (1992a) против Span & Wagner (1996) -------------------------------
+CO2_GRID_T_C = (-20.0, -10.0, 0.0, 10.0, 20.0, 30.0, 50.0, 100.0, 200.0, 300.0, 400.0, 500.0, 700.0, 1000.0)
+CO2_GRID_P_BAR = (10.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 3000.0, 5000.0, 8000.0)
+CO2_SAT_GRID_C = (-20.0, -10.0, 0.0, 10.0, 20.0, 25.0, 28.0, 30.0)
+
+
+@dataclass
+class Co2Row:
+    t_c: float
+    p_bar: float
+    phase: str
+    v_duan: float
+    v_sw: float
+    lnphi_duan: float
+    lnphi_sw: float
+    v_author: float | None           # None — схема программы автора не сошлась
+    lnphi_author: float | None
+
+    @property
+    def dv_pct(self):
+        return 100 * (self.v_duan / self.v_sw - 1)
+
+    @property
+    def dphi_pct(self):
+        from math import exp
+        return 100 * (exp(self.lnphi_duan - self.lnphi_sw) - 1)
+
+    @property
+    def author_dphi_pct(self):
+        """Сдвиг φ в схеме программы автора относительно точного значения того же уравнения, %."""
+        from math import exp
+        return None if self.lnphi_author is None else 100 * (exp(self.lnphi_author - self.lnphi_duan) - 1)
+
+    @property
+    def author_same_root(self):
+        return self.v_author is not None and abs(self.v_author / self.v_duan - 1) < 1e-8
+
+
+def _span_wagner_state(t_c: float, p_bar: float):
+    """(V, см³/моль; ln φ) чистой CO₂ по Span & Wagner (1996) через CoolProp; None ниже кривой плавления."""
+    import CoolProp
+    from math import log
+    st = CoolProp.AbstractState('HEOS', 'CO2')
+    try:
+        st.update(CoolProp.PT_INPUTS, p_bar * 1e5, t_c + 273.15)
+    except ValueError:
+        return None
+    z = st.compressibility_factor()
+    return st.molar_mass() / st.rhomass() * 1e6, st.alphar() + z - 1 - log(z)
+
+
+def evaluate_co2_duan1992() -> list[Co2Row]:
+    from fluid_core import co2_duan1992 as D
+    rows = []
+    for t in CO2_GRID_T_C:
+        for p in CO2_GRID_P_BAR:
+            ref = _span_wagner_state(t, p)
+            if ref is None:
+                continue
+            s = D.state(t, p)
+            try:
+                va, la = D.author_volume_and_lnphi(t, p)
+            except ArithmeticError:
+                va = la = None
+            rows.append(Co2Row(t, p, s.phase, s.molar_volume_cm3_mol, ref[0], s.ln_fugacity_coefficient, ref[1],
+                               va, la))
+    return rows
+
+
+def co2_statistics(rows: list[Co2Row]) -> dict:
+    """Наибольшие отклонения по областям: заявленная (0–1000 °C) и экстраполяция (< 0 °C)."""
+    def mx(sel, attr):
+        vals = [abs(getattr(r, attr)) for r in rows if sel(r) and getattr(r, attr) is not None]
+        return max(vals) if vals else None
+    core = lambda r: 0 <= r.t_c <= 500 and r.p_bar <= 3000 and not (r.t_c == 30 and r.p_bar == 50)   # noqa: E731
+    return {'n': len(rows),
+            'core_dv': mx(core, 'dv_pct'), 'core_dphi': mx(core, 'dphi_pct'),
+            'all_dv': mx(lambda r: r.t_c >= 0, 'dv_pct'), 'all_dphi': mx(lambda r: r.t_c >= 0, 'dphi_pct'),
+            'cold_dv': mx(lambda r: r.t_c < 0, 'dv_pct'), 'cold_dphi': mx(lambda r: r.t_c < 0, 'dphi_pct'),
+            'author_liquid_dphi': mx(lambda r: r.phase == 'liquid' and r.author_same_root, 'author_dphi_pct'),
+            'author_other_root': [(r.t_c, r.p_bar) for r in rows if not r.author_same_root]}
+
+
+@dataclass
+class Co2SatRow:
+    t_c: float
+    p_eq: float
+    p_sw: float
+    vl_eq: float
+    vl_sw: float
+    vv_eq: float
+    vv_sw: float
+    p_duan_liquid: float            # давление уравнения Duan при объёме насыщенной жидкости (ур. 14)
+    p_duan_vapor: float             # то же при объёме насыщенного пара (ур. 15)
+    lnphi_liquid: float
+    lnphi_vapor: float
+
+
+def evaluate_co2_saturation() -> list[Co2SatRow]:
+    from CoolProp.CoolProp import PropsSI
+    from fluid_core import co2_duan1992 as D
+    rows = []
+    for t in CO2_SAT_GRID_C:
+        k = t + 273.15
+        m = PropsSI('M', 'CO2') * 1e3
+        p, vl, vv = D.saturation_pressure_bar(t), D.saturated_liquid_volume(t), D.saturated_vapor_volume(t)
+        rows.append(Co2SatRow(t, p, PropsSI('P', 'T', k, 'Q', 0, 'CO2') / 1e5,
+                              vl, m / PropsSI('Dmass', 'T', k, 'Q', 0, 'CO2') * 1e3,
+                              vv, m / PropsSI('Dmass', 'T', k, 'Q', 1, 'CO2') * 1e3,
+                              D.pressure_bar(t, vl), D.pressure_bar(t, vv),
+                              D.ln_fugacity_coefficient(t, p, vl), D.ln_fugacity_coefficient(t, p, vv)))
+    return rows
