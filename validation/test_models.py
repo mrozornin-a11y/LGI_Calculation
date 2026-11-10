@@ -83,5 +83,40 @@ class TestClathrateBoundaries(unittest.TestCase):
             self.assertTrue(1.05 < rho < 1.15)
 
 
+class TestStage2bPart3(unittest.TestCase):
+    """Растворимость CO₂ и объёмы: перенос против таблиц статей и независимые характеристики."""
+    def test_duan_sun_tables(self):
+        rows = V.evaluate_duan_sun_tables()
+        self.assertEqual(len(rows), 141)
+        self.assertTrue(all(r.ok for r in rows))
+        self.assertEqual({r.m_nacl for r in rows}, {0.0, 4.0})              # проверены и солевые слагаемые
+
+    def test_water_volume(self):
+        wv = V.evaluate_water_volume()
+        self.assertTrue(all(wv[t] < 0.03 for t in wv if t <= 200))
+        self.assertGreater(wv[300.0], 1.0)                                  # вне области уравнения (зафиксировано)
+
+    def test_brine_density_consistency(self):
+        rows = V.evaluate_brine_density()
+        self.assertTrue(all(abs(a / b - 1) < 3e-3 for _, t, a, b in rows if t <= 200))
+        self.assertTrue(any(abs(a / b - 1) > 0.05 for _, t, a, b in rows if t == 300))
+
+    def test_examples(self):
+        for *_, m, rho, y in V.evaluate_phase_examples():
+            self.assertTrue(0.5 < m < 2.0 and 1.0 < rho < 1.15 and 0 < y < 0.01)
+
+
+class TestMode1VsSM2018(unittest.TestCase):
+    """Этап 2б, часть 4: режим 1 против эталонного прогона программы автора."""
+    def test_all_cases_match(self):
+        rows = V.evaluate_mode1_vs_sm2018()
+        self.assertEqual(len(rows), 36)
+        self.assertEqual([r.status for r in rows].count('PASS'), 36)
+        self.assertLess(max(abs(r.deviations['rho']) for r in rows), 1e-5)
+        # точное решение уравнения CO₂ вместо схемы автора меняет плотность меньше чем на 0,01 % (Q22)
+        self.assertLess(max(abs(r.exact_deviations['rho']) for r in rows), 1e-4)
+        self.assertLess(max(abs(r.exact_deviations['X_CO2']) for r in rows), 1e-3)
+
+
 if __name__ == '__main__':
     unittest.main()

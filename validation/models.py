@@ -340,3 +340,136 @@ def evaluate_clathrate_properties() -> list[tuple]:
         comp = C.clathrate_composition(t, p, D.state(t, p).ln_fugacity_coefficient)
         out.append((t, p, comp, C.clathrate_molar_volume(t, p, comp.x_h2o), C.clathrate_density_g_cm3(t, p, comp)))
     return out
+
+
+# --- Этап 2б, часть 3: растворимость CO₂, объёмы растворов, вода в углекислотной фазе ---------------------------
+DUAN_SUN_CSV = HERE / 'data' / 'duan_sun2003_tables.csv'
+DUAN_SUN_REL_TOL = 0.005            # таблицы статьи: 4 знака после запятой
+DUAN_SUN_ABS_TOL = 0.0002
+DUAN_SUN_NEAR_BOILING_TOL = 0.02    # при P < 2·P пара воды результат чувствителен к давлению пара
+
+
+@dataclass
+class SolubilityRow:
+    m_nacl: float
+    t_k: float
+    p_bar: float
+    table: float
+    model: float
+    near_boiling: bool
+
+    @property
+    def dev(self):
+        return self.model / self.table - 1
+
+    @property
+    def ok(self):
+        tol = DUAN_SUN_NEAR_BOILING_TOL if self.near_boiling else DUAN_SUN_REL_TOL
+        return abs(self.model - self.table) <= max(tol * self.table, DUAN_SUN_ABS_TOL)
+
+
+def evaluate_duan_sun_tables() -> list[SolubilityRow]:
+    """Перенос модели Duan & Sun (2003) против таблиц самой статьи (φ CO₂ — по Duan et al., 1992a)."""
+    from fluid_core import co2_brine as B, co2_duan1992 as D
+    rows = _data_rows(DUAN_SUN_CSV)
+    out = []
+    for r in (dict(zip(rows[0], x)) for x in rows[1:]):
+        m, tk, p, x = float(r['m_NaCl']), float(r['T_K']), float(r['P_bar']), float(r['m_CO2'])
+        t = tk - 273.15
+        s = 100 * m * B.M_NACL / (1000 + m * B.M_NACL)
+        c = B.co2_solubility(t, p, s, D.state(t, p).ln_fugacity_coefficient)
+        out.append(SolubilityRow(m, tk, p, x, c.m_co2, p < 2 * B.water_vapor_pressure_bar(t)))
+    return out
+
+
+WATER_VOLUME_T_C = (0.01, 10.0, 25.0, 50.0, 100.0, 150.0, 200.0, 250.0, 300.0)
+WATER_VOLUME_P_BAR = (1.0, 50.0, 100.0, 500.0, 1000.0, 2000.0)
+
+
+def evaluate_water_volume() -> dict[float, float]:
+    """Наибольшее |отклонение|, %, объёма воды Hu et al. (2007) от IAPWS-95 по температурам (жидкая вода)."""
+    from CoolProp.CoolProp import PropsSI
+    from fluid_core import co2_brine as B
+    out = {}
+    for t in WATER_VOLUME_T_C:
+        k = t + 273.15
+        devs = []
+        for p in WATER_VOLUME_P_BAR:
+            if p <= PropsSI('P', 'T', k, 'Q', 0, 'Water') / 1e5:
+                continue
+            ref = PropsSI('M', 'Water') * 1e3 / PropsSI('Dmass', 'T', k, 'P', p * 1e5, 'Water') * 1e3
+            devs.append(abs(100 * (B.water_molar_volume(t, p) / ref - 1)))
+        out[t] = max(devs)
+    return out
+
+
+BRINE_T_C = (50.0, 100.0, 150.0, 200.0, 250.0, 300.0)
+BRINE_S_WT = (5.0, 10.0, 20.0)
+
+
+def evaluate_brine_density() -> list[tuple[float, float, float, float]]:
+    """(солёность, T, ρ этого модуля, ρ Bodnar 1983 из этапа 2а) на кривой жидкость–пар раствора без CO₂."""
+    from fluid_core import co2_brine as B, h2o_nacl as H
+    out = []
+    for s in BRINE_S_WT:
+        m = B.nacl_molality(s)
+        xn = m / (m + B.MOL_H2O_PER_KG)
+        for t in BRINE_T_C:
+            p = max(H.homogenization_pressure_bar(t, s), 1.0)
+            out.append((s, t, B.aqueous_density_g_cm3(t, p, 0.0, xn), H.liquid_density_g_cm3(t, s)))
+    return out
+
+
+def evaluate_phase_examples() -> list[tuple]:
+    """Характерные значения при низких температурах: (T, P, солёность, фаза CO₂, m(CO₂), ρ раствора, y(H₂O))."""
+    from fluid_core import co2_brine as B, co2_duan1992 as D
+    out = []
+    for t, p, s in ((0.0, 25.0, 0.0), (5.0, 25.0, 6.0), (10.0, 45.0, 0.0), (10.0, 100.0, 10.0), (20.0, 57.0, 5.0),
+                    (25.0, 100.0, 0.0), (30.0, 200.0, 15.0)):
+        st = D.state(t, p)
+        c = B.co2_solubility(t, p, s, st.ln_fugacity_coefficient)
+        out.append((t, p, s, st.phase, c.m_co2, B.aqueous_density_g_cm3(t, p, c.x_co2, c.x_nacl),
+                    B.water_fraction_in_co2(t, p, c.x_co2, c.x_nacl, st.molar_volume_cm3_mol)))
+    return out
+
+
+# --- Этап 2б, часть 4: режим 1 против эталонного прогона программы Steele-MacInnis (2018) -------------------------
+SM2018_SOLVER_REL_TOL = 1e-4        # программа автора останавливает итерации при невязках 1·10⁻⁵ … 1·10⁻⁷
+
+
+@dataclass
+class Mode1Row:
+    case: str
+    tm_clath: float
+    th_co2: float
+    branch: str
+    phi_pct: float
+    deviations: dict                 # величина -> относительное отклонение ('author')
+    exact_deviations: dict           # то же при точном решении уравнения CO₂ ('exact')
+
+    @property
+    def status(self):
+        return 'PASS' if all(abs(d) <= SM2018_SOLVER_REL_TOL for d in self.deviations.values()) else 'FAIL'
+
+
+def _mode1_deviations(r, numerics):
+    from fluid_core import h2o_co2_nacl as M
+    t_phi = M.ROOM_TEMPERATURE_C if r['PhiVap_T'] == 'room' else (float(r['PhiVap_T']) if r['PhiVap_T'] else None)
+    o = M.mode1(float(r['Tm_clath']), float(r['Th_CO2']), 'liquid' if r['homog_to'] == 'L' else 'vapor',
+                float(r['PhiVap_pct']) / 100, t_phi, numerics=numerics)
+    return {'X_NaCl': o.x_nacl / float(r['X_NaCl']) - 1, 'X_CO2': o.x_co2 / float(r['X_CO2']) - 1,
+            'X_H2O': o.x_h2o / float(r['X_H2O']) - 1, 'wt_pct_NaCl': o.salinity_wt_pct / float(r['wt_pct_NaCl']) - 1,
+            'V': o.molar_volume_cm3_mol / float(r['V_cm3_mol']) - 1, 'rho': o.density_g_cm3 / float(r['rho_g_cm3']) - 1}
+
+
+def evaluate_mode1_vs_sm2018(with_exact: bool = True) -> list[Mode1Row]:
+    """Режим 1 с заданной долей углекислотных фаз: состав, объём и плотность против программы автора."""
+    out = []
+    with open(SM2018_CSV, encoding='utf-8', newline='') as fh:
+        for r in csv.DictReader(fh):
+            if not r['mode'].startswith('1)') or not r['PhiVap_pct']:
+                continue
+            out.append(Mode1Row(r['case'], float(r['Tm_clath']), float(r['Th_CO2']), r['homog_to'],
+                                float(r['PhiVap_pct']), _mode1_deviations(r, 'author'),
+                                _mode1_deviations(r, 'exact') if with_exact else {}))
+    return out
