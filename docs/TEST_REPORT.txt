@@ -1,17 +1,15 @@
 FluidCalc — журнал автоматических проверок
-Дата: 2026-11-09 10:16:16 UTC
-Примечание: этот журнал получен в среде разработчика (Linux x86_64, glibc 2.39, Python 3.11.18 venv,
-CoolProp 8.0.0), а не на OSNova Onyx 2.7. Запустите ./run_tests.sh на целевой машине — файл будет перезаписан.
-Python:     3.11.18 (venv разработчика)
-Платформа:  Linux-6.18.44-fc-v310-x86_64-with-glibc2.39
+Дата: 2026-11-10 10:41:10 UTC
+Python:     3.13.18 (/usr/local/bin/python3)
+Платформа:  Linux-6.18.44-fc-v338-x86_64-with-glibc2.39
 glibc:      2.39
 PySide6     6.12.0
 CoolProp    8.0.0
 matplotlib  3.11.2
 openpyxl    3.1.5
-numpy       2.4.6
-scipy       1.17.1
-pandas      3.1.1
+numpy       2.5.3
+scipy       НЕ ДОСТУПЕН (No module named 'scipy') — не обязателен
+pandas      3.0.5
 Проверка CoolProp: ρ(CO₂, ж, 20 °C) = 0.773387 г/см³, P_sat = 57.2905 бар
 FluidCalc:  0.3.0; ядро fluid_core 0.2
 
@@ -55,6 +53,38 @@ test_sensitivity_range (test_calc.TestDispatch.test_sensitivity_range) ... ok
 test_unknown_kind (test_calc.TestDispatch.test_unknown_kind) ... ok
 test_core_errors_are_translated (test_calc.TestTranslations.test_core_errors_are_translated)
 Каждое известное сообщение ядра, возникающее при отказе, имеет русский перевод. ... ok
+test_composition_regression_and_limits (test_clathrate.TestClathrate.test_composition_regression_and_limits) ... ok
+test_domain (test_clathrate.TestClathrate.test_domain) ... ok
+test_volume_and_density (test_clathrate.TestClathrate.test_volume_and_density) ... ok
+test_anchor_points (test_clathrate.TestQuadruplePoints.test_anchor_points)
+Опорные точки статьи: Q1 без соли −1,48 °C и 10,34 бар; Q2 без соли +10 °C. ... ok
+test_domain (test_clathrate.TestQuadruplePoints.test_domain) ... ok
+test_inverse (test_clathrate.TestQuadruplePoints.test_inverse) ... ok
+test_q2_salinity_is_darling (test_clathrate.TestQuadruplePoints.test_q2_salinity_is_darling)
+Ур. 18 — то же уравнение Darling (1991), что и в неизменяемом fluid_core/salinity.py. ... ok
+test_regression_values (test_clathrate.TestQuadruplePoints.test_regression_values) ... ok
+test_laq_lcarb_c (test_clathrate.TestThreePhaseSurfaces.test_laq_lcarb_c) ... ok
+test_laq_v_c_meets_q1_and_q2 (test_clathrate.TestThreePhaseSurfaces.test_laq_v_c_meets_q1_and_q2) ... ok
+test_laq_v_c_monotonic_and_regression (test_clathrate.TestThreePhaseSurfaces.test_laq_v_c_monotonic_and_regression) ... ok
+test_outside_element_is_error (test_clathrate.TestThreePhaseSurfaces.test_outside_element_is_error) ... ok
+test_documented_fugacity_shift (test_co2_duan1992.TestAuthorNumerics.test_documented_fugacity_shift)
+Особенность программы автора: ln φ жидкой CO₂ сдвинут (Z взят в смещённой точке); для газа — нет. ... ok
+test_metastable_root_near_critical_point (test_co2_duan1992.TestAuthorNumerics.test_metastable_root_near_critical_point)
+У критической точки схема автора сходится к газовому корню, а устойчив плотный. ... ok
+test_same_volume_as_exact_solution (test_co2_duan1992.TestAuthorNumerics.test_same_volume_as_exact_solution) ... ok
+test_branch_below_critical_temperature (test_co2_duan1992.TestEquationOfState.test_branch_below_critical_temperature) ... ok
+test_domain (test_co2_duan1992.TestEquationOfState.test_domain) ... ok
+test_flags (test_co2_duan1992.TestEquationOfState.test_flags) ... ok
+test_fugacity_formula_is_thermodynamically_consistent (test_co2_duan1992.TestEquationOfState.test_fugacity_formula_is_thermodynamically_consistent)
+Независимо от источника формулы: d ln f / dP = V / (R·T) на изотерме. ... ok
+test_ideal_gas_limit (test_co2_duan1992.TestEquationOfState.test_ideal_gas_limit) ... ok
+test_regression_values (test_co2_duan1992.TestEquationOfState.test_regression_values)
+Закреплённые значения (защита от случайного изменения коэффициентов). ... ok
+test_self_consistency (test_co2_duan1992.TestEquationOfState.test_self_consistency) ... ok
+test_against_span_wagner (test_co2_duan1992.TestSaturation.test_against_span_wagner)
+Корреляции ур. 13–15 (запись программы автора) против полного уравнения Span & Wagner (CoolProp). ... ok
+test_critical_end (test_co2_duan1992.TestSaturation.test_critical_end) ... ok
+test_domain (test_co2_duan1992.TestSaturation.test_domain) ... ok
 test_above_critical (test_core.TestCO2.test_above_critical) ... ok
 test_backend_saturation_properties (test_core.TestCO2.test_backend_saturation_properties) ... ok
 test_below_triple (test_core.TestCO2.test_below_triple) ... ok
@@ -80,9 +110,9 @@ test_backup (test_db.TestSchema.test_backup) ... ok
 test_newer_schema_refused (test_db.TestSchema.test_newer_schema_refused) ... ok
 test_reopen_keeps_data (test_db.TestSchema.test_reopen_keeps_data) ... ok
 test_version (test_db.TestSchema.test_version) ... ok
-test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... ok
-test_observation_dialog (test_gui.TestMainWindow.test_observation_dialog) ... ok
-test_quick_calc (test_gui.TestMainWindow.test_quick_calc) ... ok
+test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... skipped 'PySide6 недоступен'
+test_observation_dialog (test_gui.TestMainWindow.test_observation_dialog) ... skipped 'PySide6 недоступен'
+test_quick_calc (test_gui.TestMainWindow.test_quick_calc) ... skipped 'PySide6 недоступен'
 test_critical_temperature (test_h2o_nacl.TestCore.test_critical_temperature) ... ok
 test_domain (test_h2o_nacl.TestCore.test_domain) ... ok
 test_isochore_and_trapping (test_h2o_nacl.TestCore.test_isochore_and_trapping) ... ok
@@ -96,7 +126,10 @@ test_not_for_co2_inclusions (test_h2o_nacl.TestDerived.test_not_for_co2_inclusio
 test_ok (test_h2o_nacl.TestDerived.test_ok) ... ok
 test_out_of_range_translated (test_h2o_nacl.TestDerived.test_out_of_range_translated) ... ok
 test_warnings (test_h2o_nacl.TestDerived.test_warnings) ... ok
-test_confirm_liquid_homogenization (test_h2o_nacl.TestLabImportOption.test_confirm_liquid_homogenization) ... ok
+test_confirm_liquid_homogenization (test_h2o_nacl.TestLabImportOption.test_confirm_liquid_homogenization) ... /usr/local/lib/python3.13/xml/etree/ElementTree.py:1600: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7fee1195e200>
+  append((event, end(tag)))
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
 test_database_dump (test_import_export.TestImportAndExport.test_database_dump) ... ok
 test_export_csv_and_xlsx (test_import_export.TestImportAndExport.test_export_csv_and_xlsx) ... ok
 test_hierarchy_conflict_reported (test_import_export.TestImportAndExport.test_hierarchy_conflict_reported) ... ok
@@ -120,15 +153,15 @@ test_parse_blocks_and_columns (test_lab_table.TestLabTable.test_parse_blocks_and
 test_parsed_rows_do_not_guess (test_lab_table.TestLabTable.test_parsed_rows_do_not_guess) ... ok
 test_source_not_modified (test_lab_table.TestLabTable.test_source_not_modified) ... ok
 test_table_interpolation_is_distinguished_from_error (test_lab_table.TestLabTable.test_table_interpolation_is_distinguished_from_error) ... ok
-test_gui_import (test_lab_table.TestLabTableGui.test_gui_import) ... ok
+test_gui_import (test_lab_table.TestLabTableGui.test_gui_import) ... skipped 'PySide6 недоступен'
 test_empty_plot (test_plots_offline.TestWorkflowOffline.test_empty_plot) ... ok
 test_full_workflow_without_network (test_plots_offline.TestWorkflowOffline.test_full_workflow_without_network) ... ok
 test_th_salinity_points_use_mean_of_replicates (test_plots_offline.TestWorkflowOffline.test_th_salinity_points_use_mean_of_replicates) ... ok
 
 ----------------------------------------------------------------------
-Ran 103 tests in 1.958s
+Ran 128 tests in 2.081s
 
-OK
+OK (skipped=4)
 
 ================ 2. Научная валидация: тесты контрольных точек (validation/) ================
 test_equation_reproduction_never_marked_independent (validation.test_checkpoints.TestCheckpointFile.test_equation_reproduction_never_marked_independent) ... ok
@@ -163,12 +196,19 @@ test_new_discrepancy_is_flagged (validation.test_datasets.TestReconciliation.tes
 test_registry_matches_findings (validation.test_datasets.TestReconciliation.test_registry_matches_findings) ... ok
 test_vanished_discrepancy_is_flagged (validation.test_datasets.TestReconciliation.test_vanished_discrepancy_is_flagged)
 Если известное расхождение исчезло (например, после правки формулы или допуска), нужен пересмотр. ... ok
+test_against_bakker (validation.test_models.TestClathrateBoundaries.test_against_bakker) ... ok
+test_clathrate_properties (validation.test_models.TestClathrateBoundaries.test_clathrate_properties) ... ok
+test_against_span_wagner (validation.test_models.TestCo2Duan1992.test_against_span_wagner) ... ok
+test_author_scheme_features (validation.test_models.TestCo2Duan1992.test_author_scheme_features) ... ok
+test_saturation_inconsistency_is_recorded (validation.test_models.TestCo2Duan1992.test_saturation_inconsistency_is_recorded) ... ok
+test_published_fugacity_coefficients (validation.test_models.TestDuanTable5.test_published_fugacity_coefficients)
+Перенос уравнения Duan et al. (1992a) против табл. 5 самой статьи. ... ok
 test_all_ice_cases_match (validation.test_models.TestHokieFlincsTranscription.test_all_ice_cases_match) ... ok
 test_characterisation (validation.test_models.TestPureWater.test_characterisation) ... ok
 test_systematic_underestimate (validation.test_models.TestStage1VsSM2018.test_systematic_underestimate) ... ok
 
 ----------------------------------------------------------------------
-Ran 30 tests in 0.134s
+Ran 36 tests in 3.447s
 
 OK
 
@@ -228,11 +268,11 @@ OK
 
 ================ Сводка ================
 Программные тесты (tests/):
-  passed:  103
+  passed:  123
   failed:  0
-  skipped: 0
+  skipped: 4
 Тесты контрольных точек (validation/):
-  passed:  30
+  passed:  36
   failed:  0
   skipped: 0
 Отчёт о научной валидации: validation/VALIDATION_REPORT.md
