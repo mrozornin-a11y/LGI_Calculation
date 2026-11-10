@@ -549,3 +549,126 @@ def evaluate_modes23_vs_sm2018() -> list[ModeRow]:
             out.append(ModeRow(r['case'], mode, f'{inputs}, φ {r["PhiVap_pct"]} % ({r["PhiVap_T"] or "при Tm клатрата"})',
                                dev(a), dev(e), e.pressure_at_tm_clath_bar, e.salinity_at_tm_clath_wt_pct))
     return out
+
+
+# --- Сошедшееся решение (по умолчанию): невязки, физическая допустимость, устойчивость к допуску -----------------------
+TOLERANCE_SCALES = (1e2, 1e4, 1e6)
+TOLERANCE_CASES = ('SM02', 'SM08', 'SM16', 'SM26', 'SM31', 'SM36', 'SM39', 'SM40', 'SM41')
+
+
+def _run_sm_case(r, numerics='exact'):
+    from fluid_core import h2o_co2_nacl as M
+    mode = int(r['mode'][0])
+    t_phi = M.ROOM_TEMPERATURE_C if r['PhiVap_T'] == 'room' else (float(r['PhiVap_T']) if r['PhiVap_T'] else None)
+    phi = float(r['PhiVap_pct']) / 100
+    branch = 'liquid' if r['homog_to'] == 'L' else 'vapor'
+    if mode == 1:
+        return M.mode1(float(r['Tm_clath']), float(r['Th_CO2']), branch, phi, t_phi, numerics=numerics)
+    if mode == 2:
+        return M.mode2(float(r['Tm_clath']), float(r['Th_CO2']), branch, phi, t_phi, numerics=numerics)
+    return M.mode3(float(r['Tm_ice']), float(r['Tm_clath']), phi, t_phi, numerics=numerics)
+
+
+def evaluate_converged_solution() -> dict:
+    """Все случаи эталона с заданной φ в варианте по умолчанию: невязки, доли фаз, устойчивость к допуску."""
+    from fluid_core import h2o_co2_nacl as M
+    with open(SM2018_CSV, encoding='utf-8', newline='') as fh:
+        rows = [r for r in csv.DictReader(fh) if r['PhiVap_pct'] and r['mode'][0] in '123']
+    residuals, min_fraction, base, co2_balance = {}, 1.0, {}, 0.0
+    for r in rows:
+        o = _run_sm_case(r)
+        base[r['case']] = o
+        for k, v in o.residuals.items():
+            key = k.split(':')[0]
+            residuals[key] = max(residuals.get(key, 0.0), abs(v))
+        min_fraction = min([min_fraction] + [x for fr in o.phase_fractions.values() for x in fr.values()])
+        co2_balance = max(co2_balance, abs(o.diagnostics.get('co2_balance_at_tm_clath_rel', 0.0)))
+    sensitivity = {}
+    for scale in TOLERANCE_SCALES:
+        worst = 0.0
+        with M.solver_tolerance_scale(scale):
+            for r in rows:
+                if r['case'] not in TOLERANCE_CASES:
+                    continue
+                o, b = _run_sm_case(r), base[r['case']]
+                worst = max(worst, *(abs(getattr(o, a) / getattr(b, a) - 1)
+                                     for a in ('density_g_cm3', 'salinity_wt_pct', 'x_co2', 'molar_volume_cm3_mol')))
+        sensitivity[scale] = worst
+    return {'n': len(rows), 'all_converged': all(o.converged for o in base.values()),
+            'violations': sum(bool(o.diagnostics['violations']) for o in base.values()),
+            'residuals': residuals, 'min_fraction': min_fraction, 'co2_balance': co2_balance,
+            'sensitivity': sensitivity}
+
+
+# --- Этап 2б, часть 5: изохора (Duan et al., 1995), линия расслоения (Mao et al., 2013), Th общ. ------------------------
+MAO_CSV = HERE / 'data' / 'mao2013_tables.csv'
+ISOCHORE_REL_TOL = 1e-6             # отличие только в числе π (в программе автора 3,14159265)
+
+
+def evaluate_isochore_vs_sm2018() -> dict:
+    """Давления на изохоре для состава и объёма из эталона: проверка переноса уравнения Duan et al. (1995)."""
+    from fluid_core import duan1995 as E
+    worst, n, curvature, shift = 0.0, 0, 0.0, 0.0
+    with open(SM2018_CSV, encoding='utf-8', newline='') as fh:
+        for r in csv.DictReader(fh):
+            v, x = float(r['V_cm3_mol']), (float(r['X_H2O']), float(r['X_NaCl']), float(r['X_CO2']))
+            iso = E.author_isochore(v, *x)
+            devs = [p / float(r[k]) - 1 for p, k in zip(iso.pressures_bar, ('P350_bar', 'P400_bar', 'P450_bar', 'P500_bar'))]
+            devs += [iso.slope_bar_per_c / float(r['dPdT_bar_C']) - 1, iso.intercept_bar / float(r['intercept_bar']) - 1]
+            if r['P_Thtot_bar']:
+                devs.append(iso.pressure_at(float(r['Th_tot'])) / float(r['P_Thtot_bar']) - 1)
+            worst = max(worst, *(abs(d) for d in devs))
+            curvature = max(curvature, *(abs(iso.pressure_at(t) / p - 1)
+                                         for p, t in zip(iso.pressures_bar, E.AUTHOR_ISOCHORE_LABELS_C)))
+            shift = max(shift, *(abs(E.pressure_bar(t, v, *x) / p - 1)
+                                 for p, t in zip(iso.pressures_bar, E.AUTHOR_ISOCHORE_LABELS_C)))
+            n += 1
+    return {'n': n, 'worst': worst, 'curvature': curvature, 'label_shift': shift}
+
+
+def evaluate_mao_tables() -> list[tuple]:
+    """(m NaCl, T K, P, таблица, модуль): растворимость CO₂ по Mao et al. (2013) против таблиц статьи."""
+    from fluid_core import co2_brine as B, mao2013 as S
+    rows = _data_rows(MAO_CSV)
+    out = []
+    for r in (dict(zip(rows[0], x)) for x in rows[1:]):
+        m, tk, p, x = float(r['m_NaCl']), float(r['T_K']), float(r['P_bar']), float(r['m_CO2'])
+        s = 100 * m * B.M_NACL / (1000 + m * B.M_NACL)
+        out.append((m, tk, p, x, S.co2_solubility(tk - 273.15, p, s)[0]))
+    return out
+
+
+@dataclass
+class ThTotalRow:
+    case: str
+    th_total: float
+    author_dev: float                # наибольшее отклонение 'author' от эталона (состав, V, ρ, P при Th общ.)
+    exact: dict                      # отклонения 'exact' от эталона
+    phi_author: float
+    phi_exact: float
+    p_solvus_exact: float            # давление на линии расслоения (Mao et al., 2013), сошедшееся решение
+    p_line_exact: float              # давление по линейной изохоре при Th общ. (как выдаёт программа автора)
+
+
+def evaluate_th_total_vs_sm2018() -> list[ThTotalRow]:
+    from fluid_core import duan1995 as E, h2o_co2_nacl as M
+    out = []
+    with open(SM2018_CSV, encoding='utf-8', newline='') as fh:
+        for r in csv.DictReader(fh):
+            if r['PhiVap_pct'] or not r['Th_tot']:
+                continue
+            th_tot = float(r['Th_tot'])
+
+            def run(numerics):
+                o = M.mode1(float(r['Tm_clath']), float(r['Th_CO2']), 'liquid' if r['homog_to'] == 'L' else 'vapor',
+                            total_homogenization_c=th_tot, total_homogenization_to='liquid', numerics=numerics)
+                iso = E.author_isochore(o.molar_volume_cm3_mol, o.x_h2o, o.x_nacl, o.x_co2)
+                dev = {k: getattr(o, a) / float(r[_SM_COLUMNS.get(k, k)]) - 1 for k, a in _SM_KEYS}
+                dev['P_Thtot'] = iso.pressure_at(th_tot) / float(r['P_Thtot_bar']) - 1
+                return o, iso, dev
+            a, _, da = run('author')
+            e, iso_e, de = run('exact')
+            out.append(ThTotalRow(r['case'], th_tot, max(abs(d) for d in da.values()), de,
+                                  a.carbonic_fraction_at_th_co2, e.carbonic_fraction_at_th_co2,
+                                  e.pressure_at_th_total_bar, iso_e.pressure_at(th_tot)))
+    return out

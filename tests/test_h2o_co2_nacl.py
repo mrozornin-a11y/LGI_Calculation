@@ -18,7 +18,7 @@ class TestMode1(unittest.TestCase):
             r = rows[case]
             with self.subTest(case):
                 o = M.mode1(float(r['Tm_clath']), float(r['Th_CO2']), 'liquid' if r['homog_to'] == 'L' else 'vapor',
-                            float(r['PhiVap_pct']) / 100, M.ROOM_TEMPERATURE_C)
+                            float(r['PhiVap_pct']) / 100, M.ROOM_TEMPERATURE_C, numerics='author')
                 for got, key in ((o.x_nacl, 'X_NaCl'), (o.x_co2, 'X_CO2'), (o.x_h2o, 'X_H2O'),
                                  (o.salinity_wt_pct, 'wt_pct_NaCl'), (o.co2_mol_pct_salt_free, 'mol_pct_CO2'),
                                  (o.molar_volume_cm3_mol, 'V_cm3_mol'), (o.density_g_cm3, 'rho_g_cm3')):
@@ -88,7 +88,7 @@ class TestMode2(unittest.TestCase):
             r = rows[case]
             with self.subTest(case):
                 o = M.mode2(float(r['Tm_clath']), float(r['Th_CO2']), 'liquid' if r['homog_to'] == 'L' else 'vapor',
-                            float(r['PhiVap_pct']) / 100, M.ROOM_TEMPERATURE_C)
+                            float(r['PhiVap_pct']) / 100, M.ROOM_TEMPERATURE_C, numerics='author')
                 for got, key in ((o.x_nacl, 'X_NaCl'), (o.x_co2, 'X_CO2'), (o.salinity_wt_pct, 'wt_pct_NaCl'),
                                  (o.molar_volume_cm3_mol, 'V_cm3_mol'), (o.density_g_cm3, 'rho_g_cm3')):
                     self.assertAlmostEqual(got / float(r[key]), 1, delta=1e-4, msg=key)
@@ -130,7 +130,7 @@ class TestMode2(unittest.TestCase):
 class TestMode3(unittest.TestCase):
     def test_matches_author_program(self):
         r = _oracle()['SM41']
-        o = M.mode3(float(r['Tm_ice']), float(r['Tm_clath']), float(r['PhiVap_pct']) / 100)
+        o = M.mode3(float(r['Tm_ice']), float(r['Tm_clath']), float(r['PhiVap_pct']) / 100, numerics='author')
         for got, key in ((o.x_nacl, 'X_NaCl'), (o.x_co2, 'X_CO2'), (o.salinity_wt_pct, 'wt_pct_NaCl'),
                          (o.molar_volume_cm3_mol, 'V_cm3_mol'), (o.density_g_cm3, 'rho_g_cm3')):
             self.assertAlmostEqual(got / float(r[key]), 1, delta=1e-10, msg=key)
@@ -159,6 +159,131 @@ class TestMode3(unittest.TestCase):
                      (-5.0, 5.0, 0.2, 2.0)):
             with self.subTest(args), self.assertRaises(ValueError):
                 M.mode3(*args)
+
+
+class TestTotalHomogenization(unittest.TestCase):
+    """Доля углекислотной фазы по Th общ. (гомогенизация в водную жидкость)."""
+    def test_matches_author_program(self):
+        rows = _oracle()
+        for case in ('SM37', 'SM38'):
+            r = rows[case]
+            with self.subTest(case):
+                o = M.mode1(float(r['Tm_clath']), float(r['Th_CO2']), 'liquid',
+                            total_homogenization_c=float(r['Th_tot']), total_homogenization_to='liquid',
+                            numerics='author')
+                self.assertFalse(o.converged)
+                for got, key in ((o.x_nacl, 'X_NaCl'), (o.x_co2, 'X_CO2'), (o.salinity_wt_pct, 'wt_pct_NaCl'),
+                                 (o.molar_volume_cm3_mol, 'V_cm3_mol'), (o.density_g_cm3, 'rho_g_cm3')):
+                    self.assertAlmostEqual(got / float(r[key]), 1, delta=1e-8, msg=key)
+
+    def test_converged_solution(self):
+        o = M.mode1(8.0, 25.0, 'liquid', total_homogenization_c=250.0, total_homogenization_to='liquid')
+        self.assertTrue(o.converged)
+        self.assertEqual(o.total_homogenization_c, 250.0)
+        self.assertLessEqual(abs(o.residuals['volume_cm3_mol:th_total']), M.RESIDUAL_LIMITS['volume_cm3_mol'])
+        self.assertLessEqual(abs(o.residuals['fraction:solvus']), M.RESIDUAL_LIMITS['fraction'])
+        self.assertTrue(0 < o.carbonic_fraction_at_th_co2 < 1)
+        # та же доля, заданная напрямую, даёт то же включение
+        same = M.mode1(8.0, 25.0, 'liquid', o.carbonic_fraction_at_th_co2)
+        self.assertAlmostEqual(same.density_g_cm3, o.density_g_cm3, delta=1e-10)
+        # более высокая Th общ. — больше CO₂ растворяется, включение менее плотное
+        hot = M.mode1(8.0, 25.0, 'liquid', total_homogenization_c=300.0, total_homogenization_to='liquid')
+        self.assertGreater(hot.x_co2, o.x_co2)
+        self.assertLess(hot.density_g_cm3, o.density_g_cm3)
+        # вариант автора останавливается при расхождении объёмов 0,05 см³/моль
+        a = M.mode1(8.0, 25.0, 'liquid', total_homogenization_c=250.0, total_homogenization_to='liquid',
+                    numerics='author')
+        self.assertAlmostEqual(abs(a.residuals['volume_cm3_mol:th_total']), 0.05, delta=0.005)
+        self.assertAlmostEqual(a.density_g_cm3 / o.density_g_cm3, 1, delta=1e-3)
+
+    def test_other_modes(self):
+        o2 = M.mode2(8.0, 5.0, 'liquid', total_homogenization_c=280.0, total_homogenization_to='liquid')
+        o3 = M.mode3(-5.0, 5.0, total_homogenization_c=200.0, total_homogenization_to='liquid')
+        for o in (o2, o3):
+            self.assertTrue(o.converged)
+            self.assertIsNotNone(o.pressure_at_th_total_bar)
+            self.assertTrue(0 < o.carbonic_fraction_at_tm_clath < 1)
+
+    def test_nothing_is_guessed(self):
+        kw = dict(total_homogenization_c=250.0, total_homogenization_to='liquid')
+        for args, k in (((8.0, 25.0, 'liquid'), {}),                                   # ни φ, ни Th общ.
+                        ((8.0, 25.0, 'liquid', 0.3), kw),                              # и то и другое
+                        ((8.0, 25.0, 'liquid'), dict(total_homogenization_c=250.0)),   # направление не указано
+                        ((8.0, 25.0, 'liquid'), dict(kw, total_homogenization_to='vapor')),
+                        ((8.0, 25.0, 'liquid'), dict(kw, total_homogenization_c=20.0)),    # ниже Th CO₂
+                        ((8.0, 25.0, 'liquid'), dict(kw, total_homogenization_c=460.0)),   # выше области модели
+                        ((8.0, 25.0, 'liquid', None, 23.5), kw),                       # T оценки φ вместе с Th общ.
+                        ((8.0, 25.0, 'liquid', 0.3), dict(total_homogenization_to='liquid'))):
+            with self.subTest((args, k)), self.assertRaises(ValueError):
+                M.mode1(*args, **k)
+
+
+class TestConvergedDefault(unittest.TestCase):
+    """По умолчанию выдаётся сошедшееся решение с проверкой невязок и физической допустимости."""
+    def test_default_is_converged(self):
+        for o in (M.mode1(5.0, 20.0, 'liquid', 0.3), M.mode2(8.0, 5.0, 'liquid', 0.3), M.mode3(-5.0, 5.0, 0.2)):
+            with self.subTest(o.mode):
+                self.assertEqual(o.numerics, 'exact')
+                self.assertTrue(o.converged)
+                self.assertEqual(o.diagnostics['violations'], [])
+                self.assertTrue(o.residuals)
+                for key, r in o.residuals.items():
+                    self.assertLessEqual(abs(r), M.RESIDUAL_LIMITS[key.split(':')[0]], msg=key)
+                for fractions in o.phase_fractions.values():
+                    self.assertAlmostEqual(sum(fractions.values()), 1, delta=1e-12)
+                    self.assertTrue(all(0 <= x <= 1 for x in fractions.values()))
+
+    def test_author_variant_is_marked_not_converged(self):
+        a2 = M.mode2(8.0, 5.0, 'liquid', 0.3, numerics='author')
+        a3 = M.mode3(-5.0, 5.0, 0.2, numerics='author')
+        self.assertFalse(a2.converged)
+        self.assertFalse(a3.converged)
+        self.assertGreater(abs(a3.residuals['volume_cm3_mol']), 1e-4)        # остановка по критерию 0,02 см³/моль
+        self.assertLessEqual(abs(a3.residuals['volume_cm3_mol']), 0.02)
+        self.assertGreater(abs(a2.residuals['fraction:volume']), 1e-9)
+        self.assertLessEqual(abs(a2.residuals['fraction:volume']), 0.001)
+
+    def test_stable_under_tolerance_change(self):
+        """Ослабление критериев остановки в 100 и 10⁴ раз меняет результат не более чем на 1·10⁻⁸ и 1·10⁻⁵."""
+        cases = ((M.mode1, (5.0, 15.0, 'liquid', 0.3, M.ROOM_TEMPERATURE_C)), (M.mode2, (8.0, 5.0, 'vapor', 0.3)),
+                 (M.mode3, (-5.0, 5.0, 0.2, M.ROOM_TEMPERATURE_C)))
+        for f, args in cases:
+            base = f(*args)
+            for scale, limit in ((1e2, 1e-8), (1e4, 1e-5)):
+                with self.subTest((f.__name__, scale)), M.solver_tolerance_scale(scale):
+                    o = f(*args)
+                    for a in ('density_g_cm3', 'salinity_wt_pct', 'x_co2'):
+                        self.assertAlmostEqual(getattr(o, a) / getattr(base, a), 1, delta=limit)
+        with self.assertRaises(ValueError):
+            with M.solver_tolerance_scale(0.1):
+                pass
+
+    def test_non_convergence_is_reported(self):
+        with self.assertRaises(M.ConvergenceError):
+            M._secant(lambda x: 1.0 + x * x, 0.0, 1.0, 1e-13, 'проверка')     # корня нет
+        import fluid_core.h2o_co2_nacl as mod
+        limits = dict(mod.RESIDUAL_LIMITS)
+        try:
+            mod.RESIDUAL_LIMITS['volume_cm3_mol'] = 0.0                      # любая невязка считается превышением
+            with self.assertRaises(M.ConvergenceError):
+                M.mode1(5.0, 20.0, 'liquid', 0.3)
+        finally:
+            mod.RESIDUAL_LIMITS.update(limits)
+        self.assertTrue(issubclass(M.ConvergenceError, ArithmeticError))
+
+    def test_non_physical_solution_is_rejected(self):
+        # режим 1: при такой малой доле пара жидкой CO₂ при Tm клатрата быть не может
+        with self.assertRaises(M.NonPhysicalSolutionError) as ctx:
+            M.mode1(5.0, 30.5, 'vapor', 0.02)
+        self.assertIn('жидкая CO₂', str(ctx.exception))
+        # то же в варианте автора не отвергается, но нарушение записывается
+        a = M.mode1(5.0, 30.5, 'vapor', 0.02, numerics='author')
+        self.assertTrue(a.diagnostics['violations'])
+        with self.assertRaises(M.NonPhysicalSolutionError):
+            M.mode3(-5.0, 9.5, 0.2)                     # объёмы при Tm льда и Tm клатрата несовместимы
+        with self.assertRaises(M.NonPhysicalSolutionError):
+            M.mode2(12.0, 5.0, 'liquid', 0.3)           # такое давление не достигается на изохоре CO₂
+        self.assertTrue(issubclass(M.NonPhysicalSolutionError, ValueError))
 
 
 if __name__ == '__main__':
