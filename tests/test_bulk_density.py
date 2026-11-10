@@ -224,7 +224,14 @@ class TestStorage(unittest.TestCase):
         self.assertEqual(r12[13], 30.0)
         self.assertIsNotNone(r12[14])
         self.assertEqual(data[1][9], 'Bodnar (1993)')
-        self.assertTrue(any('давление не рассчитывается' in str(r[0]) for r in rows))   # для включений с CO₂
+        # включения с CO₂: строгая модель; давления показаны раздельно и не выдаются за давление захвата
+        self.assertTrue(any('НЕ являются давлением захвата' in str(r[0]) for r in rows))
+        col = {h: i for i, h in enumerate(header)}
+        self.assertAlmostEqual(r12[col['ρ включения, строгая модель, г/см³']], 0.9601, delta=5e-4)
+        self.assertGreater(r12[col['ρ включения, строгая модель, г/см³']], r12[14])     # объёмный баланс занижает
+        self.assertIsNone(r12[col['P расслоения при Th общ., бар']])                    # направление Th общ. не указано
+        self.assertIn('не давление захвата', r12[col['Предупреждения модели']])
+        self.assertIsNone(data[1][col['ρ включения, строгая модель, г/см³']])           # водно-солевое включение
         self.assertTrue(any('МИНИМАЛЬНОЕ давление' in str(r[0]) for r in rows))       # Ph водно-солевых
         db.close()
 

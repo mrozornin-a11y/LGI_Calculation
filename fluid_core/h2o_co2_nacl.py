@@ -409,6 +409,27 @@ def _composition(n_nacl, n_co2, n_h2o, v, numerics, **extra):
 
 
 TH_TOTAL_MAX_C = S.T_MAX_C      # 450 °C: граница модели расслоения (и программы автора)
+TH_TOTAL_APPROXIMATE_ABOVE_C = 200.0   # выше — расчёт по Th общ. ориентировочный: объёмные корреляции раствора
+#                                        (Hu et al., 2007; регрессии V° и Av автора программы) теряют точность
+
+
+def solvus_pressure_bar(th_total_c: float, x_h2o: float, x_nacl: float, x_co2: float,
+                        *, numerics: str = 'exact') -> float:
+    """Давление на линии расслоения при Th общ. для заданного валового состава, бар (Mao et al., 2013).
+
+    Это давление, при котором растворимость CO₂ в растворе равна валовой доле CO₂ (гомогенизация в водную
+    жидкость). Оно НЕ совпадает с давлением по изохоре при той же температуре и не является давлением захвата.
+    """
+    th = _num(th_total_c, 'Th общ.')
+    xw, xn, xc = (_num(v, 'Мольная доля') for v in (x_h2o, x_nacl, x_co2))
+    if min(xw, xc) <= 0 or xn < 0 or abs(xw + xn + xc - 1) > 1e-9:
+        raise ValueError('Мольные доли должны быть положительными (NaCl — неотрицательной) и давать в сумме 1')
+    if not 0 <= th <= TH_TOTAL_MAX_C:
+        raise ValueError(f'Th общ. вне области модели расслоения (0 … {TH_TOTAL_MAX_C:g} °C)')
+    p, _, residual, _ = _homogenization_state(th, xn, xc, xw, numerics)
+    if p <= 0 or abs(residual) > RESIDUAL_LIMITS['fraction'] * _TOL_SCALE[0]:
+        raise ConvergenceError('Сходимость не достигнута: давление расслоения при Th общ.')
+    return p
 
 
 def _fraction_input(carbonic_fraction, fraction_temperature_c, th_total_c, th_total_to, t_last):

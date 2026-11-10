@@ -32,6 +32,24 @@ RESULT_COLUMNS = [
     ('P_sat CO₂, бар', lambda run, r: r['extras'].get('saturation_pressure_bar')),
     ('Мольный объём CO₂, см³/моль', lambda run, r: r['extras'].get('molar_volume_cm3_mol')),
     ('До крит. точки CO₂, °C', lambda run, r: r['extras'].get('critical_proximity_c')),
+    ('Режим модели H₂O–CO₂–NaCl', lambda run, r: r['extras'].get('mode_title') or ''),
+    ('X(H₂O), мол. доля', lambda run, r: r['extras'].get('x_h2o')),
+    ('X(CO₂), мол. доля', lambda run, r: r['extras'].get('x_co2')),
+    ('X(NaCl), мол. доля', lambda run, r: r['extras'].get('x_nacl')),
+    ('Солёность валовая, мас. %', lambda run, r: r['extras'].get('salinity_bulk_wt_pct')),
+    ('Молярный объём включения, см³/моль', lambda run, r: r['extras'].get('molar_volume_cm3_mol')
+     if 'x_co2' in r['extras'] else None),
+    ('P при Tm клатрата (внутри включения), бар', lambda run, r: r['extras'].get('pressure_at_tm_clath_bar')),
+    ('P при Th CO₂ (насыщение CO₂), бар', lambda run, r: r['extras'].get('pressure_at_th_co2_bar')),
+    ('P на линии расслоения при Th общ. (Mao 2013), бар',
+     lambda run, r: r['extras'].get('pressure_solvus_th_total_bar')),
+    ('P по изохоре при Th общ. (Duan 1995), бар', lambda run, r: r['extras'].get('pressure_isochore_th_total_bar')),
+    ('Способ расчёта P по изохоре при Th общ.',
+     lambda run, r: r['extras'].get('pressure_isochore_th_total_method') or ''),
+    ('Расхождение двух P при Th общ., бар', lambda run, r: r['extras'].get('pressure_th_total_difference_bar')),
+    ('Расхождение двух P при Th общ., %', lambda run, r: r['extras'].get('pressure_th_total_difference_pct')),
+    ('Изохора (T °C → P бар)', lambda run, r: '; '.join(f'{t:.0f} → {p:.0f}' for t, p in r['extras']['isochore'])
+     if r['extras'].get('isochore') else ''),
     ('Значение при T−u', lambda run, r: r['extras'].get('sensitivity_t_minus_u')),
     ('Значение при T+u', lambda run, r: r['extras'].get('sensitivity_t_plus_u')),
     ('Методика', lambda run, r: r['model'] or ''),
@@ -209,6 +227,8 @@ def export_observations_csv(path: str | Path, observations: list[dict], *, delim
 LAB_HEADERS = ['№ п/п', '№ вкл.', 'Th общ., °C', 'Тип включения', 'Tm CO₂, °C', 'Тэвт, °C', 'Tm клатрата, °C',
                'Tm льда, °C', 'Солёность, мас. % NaCl-экв.', 'Метод солёности', 'Th CO₂, °C', 'Гомог. CO₂',
                'ρ CO₂, г/см³', 'φ CO₂, %', 'ρ включения, г/см³', 'Ph при Th (мин.), бар', 'dP/dT изохоры, бар/°C',
+               'ρ включения, строгая модель, г/см³', 'X(CO₂), мол. %', 'Солёность валовая, мас. %',
+               'P расслоения при Th общ., бар', 'P по изохоре при Th общ., бар', 'Предупреждения модели',
                'Замечания']
 _HOMOG_SHORT = {'liquid': 'Ж', 'vapor': 'Г', 'critical': 'крит.'}
 
@@ -216,6 +236,20 @@ _HOMOG_SHORT = {'liquid': 'Ж', 'vapor': 'Г', 'critical': 'крит.'}
 def _natural_key(s: str):
     import re
     return [int(x) if x.isdigit() else x for x in re.split(r'(\d+)', s or '')]
+
+
+def _pvtx_cells(ok_rows: list[dict]) -> list:
+    """Столбцы строгой модели H₂O–CO₂–NaCl для лабораторной раскладки (пустые, если расчёта нет)."""
+    if not ok_rows:
+        return [None] * 6
+    r = ok_rows[0]
+    ex = r['extras']
+
+    def rnd(key, digits, scale=1.0):
+        return None if ex.get(key) is None else round(scale * ex[key], digits)
+    return [round(r['value'], 4), rnd('x_co2', 2, 100.0), rnd('salinity_bulk_wt_pct', 2),
+            rnd('pressure_solvus_th_total_bar', 0), rnd('pressure_isochore_th_total_bar', 0),
+            ' | '.join(r['warnings'] or [])]
 
 
 def _lab_rows(results: list[dict], inclusion_types: dict):
@@ -252,14 +286,14 @@ def _lab_rows(results: list[dict], inclusion_types: dict):
             temps('Tm_clath'), temps('Tm_ice'), None if sal is None else round(sal, 2), method, temps('Th_CO2'),
             homog, None if rho_c is None else round(rho_c, 4), None if phi is None else round(100 * phi, 1),
             None if rho_b is None else round(rho_b, 3), None if ph is None else round(ph, 1),
-            None if slope is None else round(slope, 2), ' | '.join(notes)])
+            None if slope is None else round(slope, 2), *_pvtx_cells(ok('co2_pvtx')), ' | '.join(notes)])
     return samples
 
 
 def export_lab_format_xlsx(path, run: dict, results: list[dict], db: Database | None = None) -> Path:
     """Результаты расчёта в раскладке лабораторной сводной таблицы: блок на образец, пересчитанные столбцы.
 
-    Давление в таблице отсутствует намеренно (метод суммы парциальных давлений не используется)."""
+    Давление захвата в таблице отсутствует намеренно; метод суммы парциальных давлений не используется."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font
 
@@ -297,11 +331,15 @@ def export_lab_format_xlsx(path, run: dict, results: list[dict], db: Database | 
             'Водно-солевые включения (H₂O–NaCl, гомогенизация в жидкость): ρ включения и Ph — HokieFlincs '
             '(Atkinson, 2002; Bodnar, 1983; Bodnar & Vityk, 1994). Ph — давление при Th, т. е. МИНИМАЛЬНОЕ давление '
             'захвата; давление захвата = Ph + dP/dT·(T захвата − Th) при независимой оценке T захвата.',
-            'Для включений с CO₂ давление не рассчитывается: сумма «парциальных» давлений CO₂ и воды термодинамически '
-            'неверна; корректная оценка — PVTX-модель H₂O–CO₂–NaCl (этап 2б, docs/ROADMAP.md).',
+            'Включения с CO₂, строгая модель H₂O–CO₂–NaCl (Steele-MacInnis, 2018): плотность, мольная доля CO₂ и '
+            'валовая солёность — сошедшееся решение уравнений модели. Сумма «парциальных» давлений CO₂ и воды '
+            'термодинамически неверна и не используется.',
+            'P расслоения при Th общ. (Mao et al., 2013) и P по изохоре при Th общ. (Duan et al., 1995; ниже 300 °C — '
+            'экстраполяция) — два РАЗНЫХ расчёта; они не взаимозаменяемы и НЕ являются давлением захвата. '
+            'Предупреждения модели приведены в отдельном столбце.',
             'Th не является температурой образования без доказательства гетерогенного захвата в пределах FIA.'):
         ws.append([line])
-    widths = [7, 10, 9, 18, 9, 9, 10, 9, 12, 15, 9, 8, 10, 8, 11, 11, 11, 80]
+    widths = [7, 10, 9, 18, 9, 9, 10, 9, 12, 15, 9, 8, 10, 8, 11, 11, 11, 12, 10, 11, 12, 12, 80, 80]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[ws.cell(1, i).column_letter].width = w
     wb.save(str(path))

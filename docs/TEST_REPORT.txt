@@ -1,5 +1,5 @@
 FluidCalc — журнал автоматических проверок
-Дата: 2026-11-10 11:55:28 UTC
+Дата: 2026-11-10 20:11:53 UTC
 Python:     3.13.18 (/usr/local/bin/python3)
 Платформа:  Linux-6.18.44-fc-v338-x86_64-with-glibc2.39
 glibc:      2.39
@@ -11,7 +11,7 @@ numpy       2.5.3
 scipy       НЕ ДОСТУПЕН (No module named 'scipy') — не обязателен
 pandas      3.0.5
 Проверка CoolProp: ρ(CO₂, ж, 20 °C) = 0.773387 г/см³, P_sat = 57.2905 бар
-FluidCalc:  0.3.0; ядро fluid_core 0.2
+FluidCalc:  0.4.0; ядро fluid_core 0.2
 
 ================ 1. Программные и регрессионные тесты (tests/) ================
 test_decimal_comma_quoted (test_batch.TestBatch.test_decimal_comma_quoted) ... ok
@@ -136,9 +136,14 @@ test_domain (test_duan1995_mao2013.TestMao2013.test_domain) ... ok
 test_interpolation_between_parameter_sets (test_duan1995_mao2013.TestMao2013.test_interpolation_between_parameter_sets) ... ok
 test_published_values (test_duan1995_mao2013.TestMao2013.test_published_values)
 Mao et al. (2013), табл. 9 (2 моль/кг NaCl): 373,15 K и 623,15 K при 1000 бар; табл. 7: 298,15 K, 100 бар. ... ok
-test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... skipped 'PySide6 недоступен'
-test_observation_dialog (test_gui.TestMainWindow.test_observation_dialog) ... skipped 'PySide6 недоступен'
-test_quick_calc (test_gui.TestMainWindow.test_quick_calc) ... skipped 'PySide6 недоступен'
+test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... /usr/local/lib/python3.13/enum.py:696: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f3b95b42890>
+  def __call__(cls, value, names=_not_given, *values, module=None, qualname=None, type=None, start=1, boundary=None):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_observation_dialog (test_gui.TestMainWindow.test_observation_dialog) ... ok
+test_pvtx_input_calculation_save_reopen_export (test_gui.TestMainWindow.test_pvtx_input_calculation_save_reopen_export)
+Строгая модель H₂O–CO₂–NaCl: ввод → расчёт → сохранение → повторное открытие → экспорт. ... ok
+test_quick_calc (test_gui.TestMainWindow.test_quick_calc) ... ok
 test_author_variant_is_marked_not_converged (test_h2o_co2_nacl.TestConvergedDefault.test_author_variant_is_marked_not_converged) ... ok
 test_default_is_converged (test_h2o_co2_nacl.TestConvergedDefault.test_default_is_converged) ... ok
 test_non_convergence_is_reported (test_h2o_co2_nacl.TestConvergedDefault.test_non_convergence_is_reported) ... ok
@@ -162,10 +167,7 @@ test_converged_solution (test_h2o_co2_nacl.TestMode3.test_converged_solution) ..
 test_domain (test_h2o_co2_nacl.TestMode3.test_domain) ... ok
 test_fraction_at_room_temperature (test_h2o_co2_nacl.TestMode3.test_fraction_at_room_temperature) ... ok
 test_matches_author_program (test_h2o_co2_nacl.TestMode3.test_matches_author_program) ... ok
-test_converged_solution (test_h2o_co2_nacl.TestTotalHomogenization.test_converged_solution) ... /home/user/LGI_Calculation/fluid_core/h2o_nacl.py:93: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f131af3c130>
-  log_p = sum(c * t ** i * x ** j for i, row in enumerate(coeffs) for j, c in enumerate(row) if c)
-ResourceWarning: Enable tracemalloc to get the object allocation traceback
-ok
+test_converged_solution (test_h2o_co2_nacl.TestTotalHomogenization.test_converged_solution) ... ok
 test_matches_author_program (test_h2o_co2_nacl.TestTotalHomogenization.test_matches_author_program) ... ok
 test_nothing_is_guessed (test_h2o_co2_nacl.TestTotalHomogenization.test_nothing_is_guessed) ... ok
 test_other_modes (test_h2o_co2_nacl.TestTotalHomogenization.test_other_modes) ... ok
@@ -206,15 +208,35 @@ test_parse_blocks_and_columns (test_lab_table.TestLabTable.test_parse_blocks_and
 test_parsed_rows_do_not_guess (test_lab_table.TestLabTable.test_parsed_rows_do_not_guess) ... ok
 test_source_not_modified (test_lab_table.TestLabTable.test_source_not_modified) ... ok
 test_table_interpolation_is_distinguished_from_error (test_lab_table.TestLabTable.test_table_interpolation_is_distinguished_from_error) ... ok
-test_gui_import (test_lab_table.TestLabTableGui.test_gui_import) ... skipped 'PySide6 недоступен'
+test_gui_import (test_lab_table.TestLabTableGui.test_gui_import) ... ok
 test_empty_plot (test_plots_offline.TestWorkflowOffline.test_empty_plot) ... ok
 test_full_workflow_without_network (test_plots_offline.TestWorkflowOffline.test_full_workflow_without_network) ... ok
 test_th_salinity_points_use_mean_of_replicates (test_plots_offline.TestWorkflowOffline.test_th_salinity_points_use_mean_of_replicates) ... ok
+test_below_200_is_not_marked_approximate (test_pvtx_app.TestByTotalHomogenization.test_below_200_is_not_marked_approximate) ... ok
+test_fallback_is_marked (test_pvtx_app.TestByTotalHomogenization.test_fallback_is_marked) ... ok
+test_measured_fraction_has_priority (test_pvtx_app.TestByTotalHomogenization.test_measured_fraction_has_priority) ... ok
+test_duplicates_and_critical (test_pvtx_app.TestMissingData.test_duplicates_and_critical) ... ok
+test_fraction_temperature_below_clathrate_melting (test_pvtx_app.TestMissingData.test_fraction_temperature_below_clathrate_melting) ... ok
+test_missing_items_are_listed (test_pvtx_app.TestMissingData.test_missing_items_are_listed) ... ok
+test_non_convergence_is_reported (test_pvtx_app.TestMissingData.test_non_convergence_is_reported) ... ok
+test_non_physical_solution_is_reported (test_pvtx_app.TestMissingData.test_non_physical_solution_is_reported) ... ok
+test_phases_contradicting_the_mode (test_pvtx_app.TestMissingData.test_phases_contradicting_the_mode) ... ok
+test_mode1_equals_core (test_pvtx_app.TestModes.test_mode1_equals_core) ... ok
+test_mode2_both_branches (test_pvtx_app.TestModes.test_mode2_both_branches) ... ok
+test_mode3 (test_pvtx_app.TestModes.test_mode3) ... ok
+test_not_a_carbonic_inclusion (test_pvtx_app.TestModes.test_not_a_carbonic_inclusion) ... ok
+test_phi_uncertainty_range (test_pvtx_app.TestModes.test_phi_uncertainty_range) ... ok
+test_isochore_points_use_correct_kelvin (test_pvtx_app.TestPressures.test_isochore_points_use_correct_kelvin) ... ok
+test_isochore_pressure_from_eos_above_300 (test_pvtx_app.TestPressures.test_isochore_pressure_from_eos_above_300) ... ok
+test_th_total_not_to_liquid (test_pvtx_app.TestPressures.test_th_total_not_to_liquid) ... ok
+test_two_pressures_at_th_total (test_pvtx_app.TestPressures.test_two_pressures_at_th_total) ... ok
+test_core (test_pvtx_app.TestPureWaterExemption.test_core) ... ok
+test_warning_in_application (test_pvtx_app.TestPureWaterExemption.test_warning_in_application) ... ok
 
 ----------------------------------------------------------------------
-Ran 172 tests in 3.327s
+Ran 193 tests in 5.753s
 
-OK (skipped=4)
+OK
 
 ================ 2. Научная валидация: тесты контрольных точек (validation/) ================
 test_equation_reproduction_never_marked_independent (validation.test_checkpoints.TestCheckpointFile.test_equation_reproduction_never_marked_independent) ... ok
@@ -270,10 +292,12 @@ test_examples (validation.test_models.TestStage2bPart3.test_examples) ... ok
 test_water_volume (validation.test_models.TestStage2bPart3.test_water_volume) ... ok
 test_isochore_all_reference_cases (validation.test_models.TestStage2bPart5.test_isochore_all_reference_cases) ... ok
 test_mao_tables (validation.test_models.TestStage2bPart5.test_mao_tables) ... ok
+test_pure_water_exemption_changes_results_only_above_250 (validation.test_models.TestStage2bPart5.test_pure_water_exemption_changes_results_only_above_250) ... ok
 test_th_total_cases (validation.test_models.TestStage2bPart5.test_th_total_cases) ... ok
+test_working_isochore_differs_from_author_as_documented (validation.test_models.TestStage2bPart5.test_working_isochore_differs_from_author_as_documented) ... ok
 
 ----------------------------------------------------------------------
-Ran 47 tests in 3.378s
+Ran 49 tests in 5.237s
 
 OK
 
@@ -333,11 +357,11 @@ OK
 
 ================ Сводка ================
 Программные тесты (tests/):
-  passed:  167
+  passed:  192
   failed:  0
-  skipped: 4
+  skipped: 0
 Тесты контрольных точек (validation/):
-  passed:  47
+  passed:  49
   failed:  0
   skipped: 0
 Отчёт о научной валидации: validation/VALIDATION_REPORT.md

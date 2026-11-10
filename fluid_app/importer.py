@@ -64,7 +64,7 @@ FLAG_RELEVANCE = {
     'liquid_co2_present': ('Tm_clath',),
     'vapor_co2_present': ('Tm_clath',),
     'aqueous_brine_present': ('Tm_clath',),
-    'co2_purity_confirmed': ('Th_CO2',),
+    'co2_purity_confirmed': ('Th_CO2', 'Tm_clath'),
     'homogenization_to': ('Th_CO2', 'Th_total'),
 }
 
