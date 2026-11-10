@@ -1,5 +1,5 @@
 FluidCalc — журнал автоматических проверок
-Дата: 2026-11-10 10:50:21 UTC
+Дата: 2026-11-10 10:55:36 UTC
 Python:     3.13.18 (/usr/local/bin/python3)
 Платформа:  Linux-6.18.44-fc-v338-x86_64-with-glibc2.39
 glibc:      2.39
@@ -130,6 +130,15 @@ test_version (test_db.TestSchema.test_version) ... ok
 test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... skipped 'PySide6 недоступен'
 test_observation_dialog (test_gui.TestMainWindow.test_observation_dialog) ... skipped 'PySide6 недоступен'
 test_quick_calc (test_gui.TestMainWindow.test_quick_calc) ... skipped 'PySide6 недоступен'
+test_author_numerics_effect_is_small (test_h2o_co2_nacl.TestMode1.test_author_numerics_effect_is_small) ... ok
+test_fraction_temperature_round_trip (test_h2o_co2_nacl.TestMode1.test_fraction_temperature_round_trip)
+φ при комнатной температуре и соответствующая ей φ при Th CO₂ дают одно и то же включение. ... ok
+test_internal_consistency (test_h2o_co2_nacl.TestMode1.test_internal_consistency) ... ok
+test_matches_author_program (test_h2o_co2_nacl.TestMode1.test_matches_author_program)
+Выборка эталонных случаев (полная сверка 36 случаев — в validation/). ... ok
+test_nothing_is_guessed (test_h2o_co2_nacl.TestMode1.test_nothing_is_guessed) ... ok
+test_physical_trends (test_h2o_co2_nacl.TestMode1.test_physical_trends) ... ok
+test_salt_free (test_h2o_co2_nacl.TestMode1.test_salt_free) ... ok
 test_critical_temperature (test_h2o_nacl.TestCore.test_critical_temperature) ... ok
 test_domain (test_h2o_nacl.TestCore.test_domain) ... ok
 test_isochore_and_trapping (test_h2o_nacl.TestCore.test_isochore_and_trapping) ... ok
@@ -143,8 +152,8 @@ test_not_for_co2_inclusions (test_h2o_nacl.TestDerived.test_not_for_co2_inclusio
 test_ok (test_h2o_nacl.TestDerived.test_ok) ... ok
 test_out_of_range_translated (test_h2o_nacl.TestDerived.test_out_of_range_translated) ... ok
 test_warnings (test_h2o_nacl.TestDerived.test_warnings) ... ok
-test_confirm_liquid_homogenization (test_h2o_nacl.TestLabImportOption.test_confirm_liquid_homogenization) ... /usr/local/lib/python3.13/xml/etree/ElementTree.py:1667: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f7052b623e0>
-  return self.target.start(tag, attrib)
+test_confirm_liquid_homogenization (test_h2o_nacl.TestLabImportOption.test_confirm_liquid_homogenization) ... /usr/local/lib/python3.13/xml/etree/ElementTree.py:1600: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f30996e23e0>
+  append((event, end(tag)))
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
 ok
 test_database_dump (test_import_export.TestImportAndExport.test_database_dump) ... ok
@@ -176,7 +185,7 @@ test_full_workflow_without_network (test_plots_offline.TestWorkflowOffline.test_
 test_th_salinity_points_use_mean_of_replicates (test_plots_offline.TestWorkflowOffline.test_th_salinity_points_use_mean_of_replicates) ... ok
 
 ----------------------------------------------------------------------
-Ran 141 tests in 1.772s
+Ran 148 tests in 6.513s
 
 OK (skipped=4)
 
@@ -221,6 +230,7 @@ test_saturation_inconsistency_is_recorded (validation.test_models.TestCo2Duan199
 test_published_fugacity_coefficients (validation.test_models.TestDuanTable5.test_published_fugacity_coefficients)
 Перенос уравнения Duan et al. (1992a) против табл. 5 самой статьи. ... ok
 test_all_ice_cases_match (validation.test_models.TestHokieFlincsTranscription.test_all_ice_cases_match) ... ok
+test_all_cases_match (validation.test_models.TestMode1VsSM2018.test_all_cases_match) ... ok
 test_characterisation (validation.test_models.TestPureWater.test_characterisation) ... ok
 test_systematic_underestimate (validation.test_models.TestStage1VsSM2018.test_systematic_underestimate) ... ok
 test_brine_density_consistency (validation.test_models.TestStage2bPart3.test_brine_density_consistency) ... ok
@@ -229,7 +239,7 @@ test_examples (validation.test_models.TestStage2bPart3.test_examples) ... ok
 test_water_volume (validation.test_models.TestStage2bPart3.test_water_volume) ... ok
 
 ----------------------------------------------------------------------
-Ran 40 tests in 5.062s
+Ran 41 tests in 63.997s
 
 OK
 
@@ -289,11 +299,11 @@ OK
 
 ================ Сводка ================
 Программные тесты (tests/):
-  passed:  136
+  passed:  143
   failed:  0
   skipped: 4
 Тесты контрольных точек (validation/):
-  passed:  40
+  passed:  41
   failed:  0
   skipped: 0
 Отчёт о научной валидации: validation/VALIDATION_REPORT.md

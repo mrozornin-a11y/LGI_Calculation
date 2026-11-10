@@ -431,3 +431,45 @@ def evaluate_phase_examples() -> list[tuple]:
         out.append((t, p, s, st.phase, c.m_co2, B.aqueous_density_g_cm3(t, p, c.x_co2, c.x_nacl),
                     B.water_fraction_in_co2(t, p, c.x_co2, c.x_nacl, st.molar_volume_cm3_mol)))
     return out
+
+
+# --- Этап 2б, часть 4: режим 1 против эталонного прогона программы Steele-MacInnis (2018) -------------------------
+SM2018_SOLVER_REL_TOL = 1e-4        # программа автора останавливает итерации при невязках 1·10⁻⁵ … 1·10⁻⁷
+
+
+@dataclass
+class Mode1Row:
+    case: str
+    tm_clath: float
+    th_co2: float
+    branch: str
+    phi_pct: float
+    deviations: dict                 # величина -> относительное отклонение ('author')
+    exact_deviations: dict           # то же при точном решении уравнения CO₂ ('exact')
+
+    @property
+    def status(self):
+        return 'PASS' if all(abs(d) <= SM2018_SOLVER_REL_TOL for d in self.deviations.values()) else 'FAIL'
+
+
+def _mode1_deviations(r, numerics):
+    from fluid_core import h2o_co2_nacl as M
+    t_phi = M.ROOM_TEMPERATURE_C if r['PhiVap_T'] == 'room' else (float(r['PhiVap_T']) if r['PhiVap_T'] else None)
+    o = M.mode1(float(r['Tm_clath']), float(r['Th_CO2']), 'liquid' if r['homog_to'] == 'L' else 'vapor',
+                float(r['PhiVap_pct']) / 100, t_phi, numerics=numerics)
+    return {'X_NaCl': o.x_nacl / float(r['X_NaCl']) - 1, 'X_CO2': o.x_co2 / float(r['X_CO2']) - 1,
+            'X_H2O': o.x_h2o / float(r['X_H2O']) - 1, 'wt_pct_NaCl': o.salinity_wt_pct / float(r['wt_pct_NaCl']) - 1,
+            'V': o.molar_volume_cm3_mol / float(r['V_cm3_mol']) - 1, 'rho': o.density_g_cm3 / float(r['rho_g_cm3']) - 1}
+
+
+def evaluate_mode1_vs_sm2018(with_exact: bool = True) -> list[Mode1Row]:
+    """Режим 1 с заданной долей углекислотных фаз: состав, объём и плотность против программы автора."""
+    out = []
+    with open(SM2018_CSV, encoding='utf-8', newline='') as fh:
+        for r in csv.DictReader(fh):
+            if not r['mode'].startswith('1)') or not r['PhiVap_pct']:
+                continue
+            out.append(Mode1Row(r['case'], float(r['Tm_clath']), float(r['Th_CO2']), r['homog_to'],
+                                float(r['PhiVap_pct']), _mode1_deviations(r, 'author'),
+                                _mode1_deviations(r, 'exact') if with_exact else {}))
+    return out

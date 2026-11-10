@@ -106,5 +106,17 @@ class TestStage2bPart3(unittest.TestCase):
             self.assertTrue(0.5 < m < 2.0 and 1.0 < rho < 1.15 and 0 < y < 0.01)
 
 
+class TestMode1VsSM2018(unittest.TestCase):
+    """Этап 2б, часть 4: режим 1 против эталонного прогона программы автора."""
+    def test_all_cases_match(self):
+        rows = V.evaluate_mode1_vs_sm2018()
+        self.assertEqual(len(rows), 36)
+        self.assertEqual([r.status for r in rows].count('PASS'), 36)
+        self.assertLess(max(abs(r.deviations['rho']) for r in rows), 1e-5)
+        # точное решение уравнения CO₂ вместо схемы автора меняет плотность меньше чем на 0,01 % (Q22)
+        self.assertLess(max(abs(r.exact_deviations['rho']) for r in rows), 1e-4)
+        self.assertLess(max(abs(r.exact_deviations['X_CO2']) for r in rows), 1e-3)
+
+
 if __name__ == '__main__':
     unittest.main()
