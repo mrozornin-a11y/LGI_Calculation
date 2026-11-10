@@ -1,5 +1,5 @@
 FluidCalc — журнал автоматических проверок
-Дата: 2026-11-10 11:32:25 UTC
+Дата: 2026-11-10 11:55:28 UTC
 Python:     3.13.18 (/usr/local/bin/python3)
 Платформа:  Linux-6.18.44-fc-v338-x86_64-with-glibc2.39
 glibc:      2.39
@@ -127,9 +127,24 @@ test_backup (test_db.TestSchema.test_backup) ... ok
 test_newer_schema_refused (test_db.TestSchema.test_newer_schema_refused) ... ok
 test_reopen_keeps_data (test_db.TestSchema.test_reopen_keeps_data) ... ok
 test_version (test_db.TestSchema.test_version) ... ok
+test_domain (test_duan1995_mao2013.TestDuan1995.test_domain) ... ok
+test_limits_and_trends (test_duan1995_mao2013.TestDuan1995.test_limits_and_trends) ... ok
+test_linear_isochore_is_least_squares_line (test_duan1995_mao2013.TestDuan1995.test_linear_isochore_is_least_squares_line) ... ok
+test_matches_author_program (test_duan1995_mao2013.TestDuan1995.test_matches_author_program)
+Давления, наклон и свободный член изохоры для состава и объёма из эталонного прогона (выборка). ... ok
+test_domain (test_duan1995_mao2013.TestMao2013.test_domain) ... ok
+test_interpolation_between_parameter_sets (test_duan1995_mao2013.TestMao2013.test_interpolation_between_parameter_sets) ... ok
+test_published_values (test_duan1995_mao2013.TestMao2013.test_published_values)
+Mao et al. (2013), табл. 9 (2 моль/кг NaCl): 373,15 K и 623,15 K при 1000 бар; табл. 7: 298,15 K, 100 бар. ... ok
 test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... skipped 'PySide6 недоступен'
 test_observation_dialog (test_gui.TestMainWindow.test_observation_dialog) ... skipped 'PySide6 недоступен'
 test_quick_calc (test_gui.TestMainWindow.test_quick_calc) ... skipped 'PySide6 недоступен'
+test_author_variant_is_marked_not_converged (test_h2o_co2_nacl.TestConvergedDefault.test_author_variant_is_marked_not_converged) ... ok
+test_default_is_converged (test_h2o_co2_nacl.TestConvergedDefault.test_default_is_converged) ... ok
+test_non_convergence_is_reported (test_h2o_co2_nacl.TestConvergedDefault.test_non_convergence_is_reported) ... ok
+test_non_physical_solution_is_rejected (test_h2o_co2_nacl.TestConvergedDefault.test_non_physical_solution_is_rejected) ... ok
+test_stable_under_tolerance_change (test_h2o_co2_nacl.TestConvergedDefault.test_stable_under_tolerance_change)
+Ослабление критериев остановки в 100 и 10⁴ раз меняет результат не более чем на 1·10⁻⁸ и 1·10⁻⁵. ... ok
 test_author_numerics_effect_is_small (test_h2o_co2_nacl.TestMode1.test_author_numerics_effect_is_small) ... ok
 test_fraction_temperature_round_trip (test_h2o_co2_nacl.TestMode1.test_fraction_temperature_round_trip)
 φ при комнатной температуре и соответствующая ей φ при Th CO₂ дают одно и то же включение. ... ok
@@ -147,6 +162,13 @@ test_converged_solution (test_h2o_co2_nacl.TestMode3.test_converged_solution) ..
 test_domain (test_h2o_co2_nacl.TestMode3.test_domain) ... ok
 test_fraction_at_room_temperature (test_h2o_co2_nacl.TestMode3.test_fraction_at_room_temperature) ... ok
 test_matches_author_program (test_h2o_co2_nacl.TestMode3.test_matches_author_program) ... ok
+test_converged_solution (test_h2o_co2_nacl.TestTotalHomogenization.test_converged_solution) ... /home/user/LGI_Calculation/fluid_core/h2o_nacl.py:93: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f131af3c130>
+  log_p = sum(c * t ** i * x ** j for i, row in enumerate(coeffs) for j, c in enumerate(row) if c)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_matches_author_program (test_h2o_co2_nacl.TestTotalHomogenization.test_matches_author_program) ... ok
+test_nothing_is_guessed (test_h2o_co2_nacl.TestTotalHomogenization.test_nothing_is_guessed) ... ok
+test_other_modes (test_h2o_co2_nacl.TestTotalHomogenization.test_other_modes) ... ok
 test_critical_temperature (test_h2o_nacl.TestCore.test_critical_temperature) ... ok
 test_domain (test_h2o_nacl.TestCore.test_domain) ... ok
 test_isochore_and_trapping (test_h2o_nacl.TestCore.test_isochore_and_trapping) ... ok
@@ -160,10 +182,7 @@ test_not_for_co2_inclusions (test_h2o_nacl.TestDerived.test_not_for_co2_inclusio
 test_ok (test_h2o_nacl.TestDerived.test_ok) ... ok
 test_out_of_range_translated (test_h2o_nacl.TestDerived.test_out_of_range_translated) ... ok
 test_warnings (test_h2o_nacl.TestDerived.test_warnings) ... ok
-test_confirm_liquid_homogenization (test_h2o_nacl.TestLabImportOption.test_confirm_liquid_homogenization) ... /usr/local/lib/python3.13/xml/etree/ElementTree.py:1657: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f5ca43563e0>
-  def _start(self, tag, attr_list):
-ResourceWarning: Enable tracemalloc to get the object allocation traceback
-ok
+test_confirm_liquid_homogenization (test_h2o_nacl.TestLabImportOption.test_confirm_liquid_homogenization) ... ok
 test_database_dump (test_import_export.TestImportAndExport.test_database_dump) ... ok
 test_export_csv_and_xlsx (test_import_export.TestImportAndExport.test_export_csv_and_xlsx) ... ok
 test_hierarchy_conflict_reported (test_import_export.TestImportAndExport.test_hierarchy_conflict_reported) ... ok
@@ -193,7 +212,7 @@ test_full_workflow_without_network (test_plots_offline.TestWorkflowOffline.test_
 test_th_salinity_points_use_mean_of_replicates (test_plots_offline.TestWorkflowOffline.test_th_salinity_points_use_mean_of_replicates) ... ok
 
 ----------------------------------------------------------------------
-Ran 156 tests in 9.068s
+Ran 172 tests in 3.327s
 
 OK (skipped=4)
 
@@ -235,6 +254,7 @@ test_clathrate_properties (validation.test_models.TestClathrateBoundaries.test_c
 test_against_span_wagner (validation.test_models.TestCo2Duan1992.test_against_span_wagner) ... ok
 test_author_scheme_features (validation.test_models.TestCo2Duan1992.test_author_scheme_features) ... ok
 test_saturation_inconsistency_is_recorded (validation.test_models.TestCo2Duan1992.test_saturation_inconsistency_is_recorded) ... ok
+test_all_reference_cases (validation.test_models.TestConvergedSolution.test_all_reference_cases) ... ok
 test_published_fugacity_coefficients (validation.test_models.TestDuanTable5.test_published_fugacity_coefficients)
 Перенос уравнения Duan et al. (1992a) против табл. 5 самой статьи. ... ok
 test_all_ice_cases_match (validation.test_models.TestHokieFlincsTranscription.test_all_ice_cases_match) ... ok
@@ -248,9 +268,12 @@ test_brine_density_consistency (validation.test_models.TestStage2bPart3.test_bri
 test_duan_sun_tables (validation.test_models.TestStage2bPart3.test_duan_sun_tables) ... ok
 test_examples (validation.test_models.TestStage2bPart3.test_examples) ... ok
 test_water_volume (validation.test_models.TestStage2bPart3.test_water_volume) ... ok
+test_isochore_all_reference_cases (validation.test_models.TestStage2bPart5.test_isochore_all_reference_cases) ... ok
+test_mao_tables (validation.test_models.TestStage2bPart5.test_mao_tables) ... ok
+test_th_total_cases (validation.test_models.TestStage2bPart5.test_th_total_cases) ... ok
 
 ----------------------------------------------------------------------
-Ran 43 tests in 64.105s
+Ran 47 tests in 3.378s
 
 OK
 
@@ -310,11 +333,11 @@ OK
 
 ================ Сводка ================
 Программные тесты (tests/):
-  passed:  151
+  passed:  167
   failed:  0
   skipped: 4
 Тесты контрольных точек (validation/):
-  passed:  43
+  passed:  47
   failed:  0
   skipped: 0
 Отчёт о научной валидации: validation/VALIDATION_REPORT.md

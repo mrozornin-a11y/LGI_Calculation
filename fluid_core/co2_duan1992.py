@@ -23,6 +23,7 @@ H2O-NaCl-CO2 (Steele-MacInnis, 2018, Chem. Geol. 498, 31–44) — процед�
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from math import exp, isfinite, log
 
 MODEL_REFERENCE = ('Duan Z., Møller N., Weare J.H. (1992) Geochim. Cosmochim. Acta 56, 2605–2617 (уравнение состояния '
@@ -167,9 +168,14 @@ class Co2State:
 
 def _roots(tr, pr):
     """Все корни Pr·Vr/Tr = Z(Tr, Vr) по возрастанию Vr (перебор по логарифмической сетке + деление пополам)."""
+    b, c, d, e, f_ = _coef(tr)
+    k = pr / tr
+
     def f(vr):
-        return pr * vr / tr - _z(tr, vr)
-    lo, hi, n = 0.05, max(10.0, 20 * tr / pr), 4000
+        w = 1 / (vr * vr)
+        return k * vr - (1 + b / vr + c * w + d * w * w + e * w * w / vr + f_ * w * (_BETA + _GAMMA * w) * exp(-_GAMMA * w))
+
+    lo, hi, n = 0.05, max(10.0, 20 * tr / pr), 1200
     step = (hi / lo) ** (1 / n)
     out, x0, f0 = [], lo, f(lo)
     for i in range(1, n + 1):
@@ -178,21 +184,22 @@ def _roots(tr, pr):
         if f0 == 0:
             out.append(x0)
         elif f0 * f1 < 0:
-            a, b, fa = x0, x1, f0
+            a, bb, fa = x0, x1, f0
             for _ in range(200):
-                m = 0.5 * (a + b)
+                m = 0.5 * (a + bb)
                 fm = f(m)
                 if fa * fm <= 0:
-                    b = m
+                    bb = m
                 else:
                     a, fa = m, fm
-                if b - a <= 1e-15 * b:
+                if bb - a <= 1e-15 * bb:
                     break
-            out.append(0.5 * (a + b))
+            out.append(0.5 * (a + bb))
         x0, f0 = x1, f1
     return out
 
 
+@lru_cache(maxsize=8192)
 def state(t_c: float, p_bar: float) -> Co2State:
     """Молярный объём и фугитивность чистой CO₂ при заданных T (°C) и P (бар).
 

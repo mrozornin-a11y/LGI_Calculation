@@ -144,5 +144,47 @@ class TestModes23VsSM2018(unittest.TestCase):
         self.assertTrue(all(abs(r.exact_deviations['wt_pct_NaCl']) < 5e-3 for r in rows))
 
 
+class TestConvergedSolution(unittest.TestCase):
+    """Решение по умолчанию: невязки, физическая допустимость, устойчивость к допуску (все случаи эталона с φ)."""
+    def test_all_reference_cases(self):
+        from fluid_core import h2o_co2_nacl as H
+        c = V.evaluate_converged_solution()
+        self.assertEqual(c['n'], 39)
+        self.assertTrue(c['all_converged'])
+        self.assertEqual(c['violations'], 0)
+        for key, r in c['residuals'].items():
+            self.assertLessEqual(r, H.RESIDUAL_LIMITS[key])
+        self.assertGreater(c['min_fraction'], 0)
+        self.assertLess(c['co2_balance'], 1e-9)
+        self.assertLess(c['sensitivity'][1e2], 1e-8)
+        self.assertLess(c['sensitivity'][1e4], 1e-5)
+        self.assertLess(c['sensitivity'][1e6], 1e-3)
+
+
+class TestStage2bPart5(unittest.TestCase):
+    """Изохора, линия расслоения, расчёт по Th общ."""
+    def test_isochore_all_reference_cases(self):
+        iso = V.evaluate_isochore_vs_sm2018()
+        self.assertEqual(iso['n'], 41)
+        self.assertLess(iso['worst'], V.ISOCHORE_REL_TOL)
+        self.assertLess(iso['label_shift'], 1e-2)           # расчёт при 623 K вместо 350 °C: до 0,7 %
+        self.assertLess(iso['curvature'], 3e-2)             # отклонение прямой от точек: до 2 %
+
+    def test_mao_tables(self):
+        rows = V.evaluate_mao_tables()
+        self.assertEqual(len(rows), 74)
+        self.assertTrue(all(abs(g / x - 1) < 0.015 for m, _, _, x, g in rows if m > 0))
+        self.assertTrue(all(abs(g / x - 1) < 0.003 for m, tk, _, x, g in rows if m == 0 and tk < 503))
+        # чистая вода выше 523 K: программа автора использует другой набор параметров, чем статья (Q30)
+        self.assertTrue(any(abs(g / x - 1) > 0.2 for m, tk, _, x, g in rows if m == 0 and tk > 523))
+
+    def test_th_total_cases(self):
+        rows = V.evaluate_th_total_vs_sm2018()
+        self.assertEqual([r.case for r in rows], ['SM37', 'SM38'])
+        self.assertTrue(all(r.author_dev < 1e-7 for r in rows))
+        self.assertTrue(all(abs(r.exact['rho']) < 1e-3 and abs(r.exact['X_CO2']) < 1e-2 for r in rows))
+        self.assertTrue(all(r.p_line_exact > 1.5 * r.p_solvus_exact for r in rows))      # несогласованность (Q31)
+
+
 if __name__ == '__main__':
     unittest.main()
