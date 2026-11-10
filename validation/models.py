@@ -626,15 +626,19 @@ def evaluate_isochore_vs_sm2018() -> dict:
     return {'n': n, 'worst': worst, 'curvature': curvature, 'label_shift': shift}
 
 
-def evaluate_mao_tables() -> list[tuple]:
-    """(m NaCl, T K, P, таблица, модуль): растворимость CO₂ по Mao et al. (2013) против таблиц статьи."""
+def evaluate_mao_tables(numerics: str = 'exact') -> list[tuple]:
+    """(m NaCl, T K, P, таблица, модуль): растворимость CO₂ по Mao et al. (2013) против таблиц статьи.
+
+    'exact' — вариант по умолчанию (для строго нулевой солёности до 647 K — низкотемпературный набор, как в статье);
+    'author' — выбор набора параметров программы автора.
+    """
     from fluid_core import co2_brine as B, mao2013 as S
     rows = _data_rows(MAO_CSV)
     out = []
     for r in (dict(zip(rows[0], x)) for x in rows[1:]):
         m, tk, p, x = float(r['m_NaCl']), float(r['T_K']), float(r['P_bar']), float(r['m_CO2'])
         s = 100 * m * B.M_NACL / (1000 + m * B.M_NACL)
-        out.append((m, tk, p, x, S.co2_solubility(tk - 273.15, p, s)[0]))
+        out.append((m, tk, p, x, S.co2_solubility(tk - 273.15, p, s, numerics=numerics)[0]))
     return out
 
 
@@ -671,4 +675,32 @@ def evaluate_th_total_vs_sm2018() -> list[ThTotalRow]:
             out.append(ThTotalRow(r['case'], th_tot, max(abs(d) for d in da.values()), de,
                                   a.carbonic_fraction_at_th_co2, e.carbonic_fraction_at_th_co2,
                                   e.pressure_at_th_total_bar, iso_e.pressure_at(th_tot)))
+    return out
+
+
+# --- Подключение к интерфейсу: рабочая изохора и оговорка Mao для чистой воды --------------------------------------
+def evaluate_working_isochore() -> dict:
+    """Рабочая изохора (правильный перевод °C → K) против процедуры автора на составах эталона."""
+    from fluid_core import duan1995 as E
+    dp, dslope = 0.0, 0.0
+    with open(SM2018_CSV, encoding='utf-8', newline='') as fh:
+        for r in csv.DictReader(fh):
+            v, x = float(r['V_cm3_mol']), (float(r['X_H2O']), float(r['X_NaCl']), float(r['X_CO2']))
+            work, author = E.isochore(v, *x, temperatures_c=E.ISOCHORE_FIT_T_C), E.author_isochore(v, *x)
+            dp = max(dp, *(abs(pw / pa - 1) for (_, pw), pa in zip(work.points, author.pressures_bar)))
+            dslope = max(dslope, abs(work.slope_bar_per_c / author.slope_bar_per_c - 1))
+    return {'pressure': dp, 'slope': dslope}
+
+
+def evaluate_pure_water_exemption() -> list[tuple]:
+    """Бессолевое включение (Tm клатрата 10 °C, Th CO₂ 25 °C в жидкость) по Th общ.: по умолчанию и как у автора."""
+    from fluid_core import h2o_co2_nacl as M
+    out = []
+    for th_tot in (200.0, 250.0, 300.0, 350.0):
+        row = [th_tot]
+        for numerics in ('exact', 'author'):
+            o = M.mode1(10.0, 25.0, 'liquid', total_homogenization_c=th_tot, total_homogenization_to='liquid',
+                        numerics=numerics)
+            row += [o.carbonic_fraction_at_th_co2, o.x_co2, o.density_g_cm3, o.pressure_at_th_total_bar]
+        out.append(tuple(row))
     return out

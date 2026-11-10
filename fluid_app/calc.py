@@ -216,6 +216,24 @@ def passport_lines(inputs: dict, outcome: dict, run: dict | None = None,
                 rows.append((label, format_value(inputs[key], digits)))
         if inputs.get('homogenization_to'):
             rows.append(('Направление гомогенизации CO₂', HOMOGENIZATION.get(inputs['homogenization_to'], '')))
+    elif kind == 'co2_pvtx':
+        rows.append(('Результат по включению', f'{kind_label(kind)} — {kind_title(kind)}'))
+        mode = inputs.get('mode')
+        rows.append(('Режим модели', PVTX_MODES.get(mode, 'не определён — см. причину')))
+        for key, label, digits in (('Tm_ice', 'Tm льда, °C', 2), ('Tm_clath', 'Tm клатрата, °C', 2),
+                                   ('Th_CO2', 'Th CO₂, °C', 2), ('Th_total', 'Th общ., °C', 1)):
+            if inputs.get(key) is not None:
+                rows.append((label, format_value(inputs[key], digits)))
+        if inputs.get('homogenization_to'):
+            rows.append(('Направление гомогенизации CO₂', HOMOGENIZATION.get(inputs['homogenization_to'], '')))
+        if inputs.get('Th_total') is not None:
+            rows.append(('Направление общей гомогенизации', HOMOGENIZATION.get(inputs.get('Th_total_to'), 'не указано')))
+        phi, phi_u = inputs.get('carbonic_fraction'), inputs.get('carbonic_fraction_unc')
+        rows.append(('φ углекислотных фаз, %', 'не указана' if phi is None else format_value(100 * phi, 1)
+                     + ('' if not phi_u else f' ± {format_value(100 * phi_u, 1)}')))
+        tphi = inputs.get('carbonic_fraction_temp_c')
+        rows.append(('Температура оценки φ, °C', 'не указана' if tphi is None else format_value(tphi, 1)))
+        rows.append(('Способ оценки φ', inputs.get('carbonic_fraction_method') or 'не указан'))
     elif kind == 'aq_pvt':
         rows.append(('Результат по включению', f'{kind_label(kind)} — {kind_title(kind)}'))
         for key, label, digits in (('Tm_ice', 'Tm льда, °C', 2), ('salinity_wt_pct', 'Солёность, мас. % NaCl-экв.', 2),
@@ -257,6 +275,52 @@ def passport_lines(inputs: dict, outcome: dict, run: dict | None = None,
             rows.append(('Критическая температура раствора, °C', format_value(ex['Tc_C'], 1)))
             if ex.get('isochore'):
                 rows.append(('Изохора (T, °C → P, бар)', '; '.join(f'{t:.0f} → {p:.0f}' for t, p in ex['isochore'])))
+        if 'x_co2' in ex:
+            rows.append(('Чем задано количество CO₂-фазы', ex.get('fraction_source', '')))
+            rows.append(('Валовый состав, мол. доли', f'H₂O {format_value(ex["x_h2o"], 5)}; CO₂ '
+                         f'{format_value(ex["x_co2"], 5)}; NaCl {format_value(ex["x_nacl"], 5)}'))
+            rows.append(('CO₂ / (CO₂ + H₂O), мол. %', format_value(ex['co2_mol_pct_salt_free'], 3)))
+            rows.append(('Солёность валовая, мас. % NaCl', format_value(ex['salinity_bulk_wt_pct'], 3)))
+            rows.append(('Молярный объём включения, см³/моль', format_value(ex['molar_volume_cm3_mol'], 4)))
+            rows.append(('Солёность раствора при Tm клатрата, мас. %', format_value(ex['salinity_at_tm_clath_wt_pct'], 3)))
+            rows.append(('Давление при Tm клатрата, бар', format_value(ex['pressure_at_tm_clath_bar'], 2)
+                         + ' — внутри включения, не давление захвата'))
+            if ex.get('pressure_at_th_co2_bar') is not None:
+                rows.append(('Давление при Th CO₂, бар', format_value(ex['pressure_at_th_co2_bar'], 2)
+                             + ' — давление насыщения CO₂, не давление захвата'))
+                rows.append(('Солёность раствора при Th CO₂, мас. %', format_value(ex['salinity_at_th_co2_wt_pct'], 3)))
+            if ex.get('pressure_at_tm_ice_bar') is not None:
+                rows.append(('Давление при Tm льда (Q1), бар', format_value(ex['pressure_at_tm_ice_bar'], 2)))
+                rows.append(('Солёность раствора при Tm льда (Q1), мас. %', format_value(ex['salinity_at_tm_ice_wt_pct'], 3)))
+            for key, label in (('carbonic_fraction_at_th_co2', 'φ при Th CO₂ (расчётная), %'),
+                               ('carbonic_fraction_at_tm_clath', 'φ при Tm клатрата (расчётная), %')):
+                if ex.get(key) is not None:
+                    rows.append((label, format_value(100 * ex[key], 2)))
+            if ex.get('isochore'):
+                rows.append(('Изохора: уравнение состояния Duan et al. (1995), T °C → P бар',
+                             '; '.join(f'{t:.0f} → {p:.0f}' for t, p in ex['isochore'])))
+                rows.append(('Прямая по точкам 350–500 °C', f'P = {format_value(ex["isochore_intercept_bar"], 1)} + '
+                             f'{format_value(ex["isochore_slope_bar_per_c"], 3)}·T(°C), бар'))
+            if ex.get('pressure_solvus_th_total_bar') is not None:
+                rows.append(('Давление на линии расслоения при Th общ., бар',
+                             format_value(ex['pressure_solvus_th_total_bar'], 1) + ' — растворимость CO₂ по Mao et al. '
+                             '(2013) равна валовой доле CO₂'))
+            if ex.get('pressure_isochore_th_total_bar') is not None:
+                rows.append(('Давление по изохоре при Th общ., бар',
+                             format_value(ex['pressure_isochore_th_total_bar'], 1) + ' — '
+                             + ex.get('pressure_isochore_th_total_method', '')))
+            if ex.get('pressure_th_total_difference_bar') is not None:
+                rows.append(('Расхождение двух давлений при Th общ.',
+                             f'{format_value(ex["pressure_th_total_difference_bar"], 1)} бар '
+                             f'({format_value(ex["pressure_th_total_difference_pct"], 1)} %) — значения не '
+                             'взаимозаменяемы'))
+            res = ex.get('residuals') or {}
+            rows.append(('Решение', ('сошедшееся; ' if ex.get('converged') else 'НЕ сошедшееся; ')
+                         + 'невязки уравнений: ' + '; '.join(f'{RESIDUAL_LABELS.get(k, k)} = {v:.1e}'
+                                                             for k, v in res.items())))
+            for where, fr in (ex.get('phase_fractions') or {}).items():
+                rows.append((f'Объёмные доли фаз при {where}',
+                             '; '.join(f'{name} {format_value(100 * val, 2)} %' for name, val in fr.items())))
         if 'rho_at_phi_plus_u' in ex:
             rows.append(('Плотность при φ + u / φ − u', f'{format_value(ex["rho_at_phi_plus_u"], 4)} / '
                          f'{format_value(ex["rho_at_phi_minus_u"], 4)} г/см³ (чувствительность к оценке φ)'))
@@ -439,6 +503,269 @@ def _aqueous_outcome(group: list[tuple[dict, Outcome]]) -> tuple[dict, Outcome] 
     return pseudo, out
 
 
+# --- Этап 2б: строгая модель H₂O–CO₂–NaCl (Steele-MacInnis, 2018), режимы 1–3 ---------------------------------
+PVTX_MODES = {1: 'режим 1 — клатрат плавится раньше гомогенизации CO₂ (Tm клатрата ≤ Th CO₂)',
+              2: 'режим 2 — CO₂ гомогенизируется раньше плавления клатрата (Th CO₂ < Tm клатрата)',
+              3: 'режим 3 — жидкой CO₂ нет: Tm льда и Tm клатрата в присутствии пара'}
+RESIDUAL_LABELS = {'volume_cm3_mol': 'равенство объёмов, см³/моль', 'fraction': 'заданная доля φ',
+                   'fraction:h2o': 'баланс H₂O (доля фаз)', 'fraction:volume': 'баланс объёма (доля фаз)',
+                   'boundary_pressure_bar': 'граница клатрата, бар',
+                   'volume_cm3_mol:th_total': 'объём при Th общ., см³/моль', 'fraction:solvus': 'линия расслоения'}
+PVTX_SALINITY_WARN_WT = 20.08     # 4,3 моль/кг NaCl — граница модели растворимости Duan & Sun (2003)
+PVTX_CLATHRATE_P_WARN_BAR = 1000.0   # выше — прямые изоплеты ур. 22–23 расходятся с Bakker et al. (1996), Q25
+PVTX_SOLVUS_P_MAX_BAR = 1500.0    # заявленная область модели Mao et al. (2013)
+
+
+def _flag_state(obs, key, want, missing, wrong):
+    """Сравнить записанный наблюдателем признак фазы с требуемым режимом; ничего не подставляет."""
+    v = obs.get(key)
+    if v is None:
+        missing.append(f'{FLAG_FIELDS[key]} при плавлении клатрата — не указано (нужно: {"да" if want else "нет"})')
+    elif bool(v) != want:
+        wrong.append(f'{FLAG_FIELDS[key]} при плавлении клатрата: записано «{"да" if v else "нет"}», '
+                     f'а режим требует «{"да" if want else "нет"}»')
+
+
+def _pvtx_outcome(group: list[tuple[dict, Outcome]]) -> tuple[dict, Outcome] | None:
+    """Состав, плотность и давления включения H₂O–CO₂–NaCl по строгой модели (режимы 1–3)."""
+    from fluid_core import duan1995, h2o_co2_nacl as model
+
+    def of(kind):
+        return [o for o, _ in group if o.get('kind') == kind and o.get('temperature_c') is not None]
+    clath, co2, ice, th_tot = of('Tm_clath'), of('Th_CO2'), of('Tm_ice'), of('Th_total')
+    if not clath and not co2:
+        return None                                   # не углекислотное включение
+    obs0 = group[0][0]
+    ctx = {k: obs0.get(k) for k in ('project_name', 'sample_name', 'mineral_name', 'fia_name', 'inclusion_name',
+                                    'project_id', 'inclusion_id')}
+    pseudo = dict(ctx, id=None, kind='co2_pvtx', temperature_c=None, uncertainty_c=None, homogenization_to=None,
+                  source='производный расчёт по включению')
+    meta = METHODS['h2o_co2_nacl_sm2018']
+    base = dict(kind='co2_pvtx', method_key='h2o_co2_nacl_sm2018', model=meta['title'], doi=meta['doi'],
+                citation=meta['citation'])
+    phi, phi_u, phi_t = (obs0.get(k) for k in ('carbonic_fraction', 'carbonic_fraction_unc',
+                                               'carbonic_fraction_temp_c'))
+    extra: dict = {'carbonic_fraction': phi, 'carbonic_fraction_unc': phi_u,
+                   'carbonic_fraction_method': obs0.get('carbonic_fraction_method'),
+                   'carbonic_fraction_temp_c': phi_t}
+
+    def fail(msg):
+        pseudo['extra_inputs'] = extra
+        return pseudo, Outcome('error', message=msg, **base)
+
+    for name, lst in (('Tm клатрата', clath), ('Th CO₂', co2), ('Tm льда', ice), ('Th общ.', th_tot)):
+        if len(lst) > 1:
+            return fail(f'У включения несколько наблюдений «{name}»; оставьте одно — автоматический выбор или '
+                        'усреднение не выполняются.')
+    missing: list[str] = []
+    wrong: list[str] = []
+    mode = None
+    if not clath:
+        missing.append('Tm клатрата (температура окончательного плавления клатрата CO₂)')
+    o_cl = clath[0] if clath else {}
+    tm = o_cl.get('temperature_c')
+    branch = None
+    if co2:
+        o_co2 = co2[0]
+        th = o_co2['temperature_c']
+        extra.update({'Th_CO2': th, 'homogenization_to': o_co2.get('homogenization_to')})
+        branch = o_co2.get('homogenization_to')
+        if branch in (None, ''):
+            missing.append('направление гомогенизации CO₂ (в жидкость или в газ) — автоматически не выбирается')
+        elif branch == 'critical':
+            return fail('Критическая гомогенизация CO₂: модель определена только для гомогенизации в жидкость '
+                        'или в газ.')
+        if o_co2.get('co2_purity_confirmed') is not True:
+            missing.append('приближение чистой CO₂ не принято явно (флажок у наблюдения Th CO₂)')
+        if clath:
+            mode = 1 if tm <= th else 2
+            _flag_state(o_cl, 'aqueous_brine_present', True, missing, wrong)
+            if mode == 1:
+                _flag_state(o_cl, 'liquid_co2_present', True, missing, wrong)
+                _flag_state(o_cl, 'vapor_co2_present', True, missing, wrong)
+            elif branch in ('liquid', 'vapor'):
+                _flag_state(o_cl, 'liquid_co2_present', branch == 'liquid', missing, wrong)
+                _flag_state(o_cl, 'vapor_co2_present', branch == 'vapor', missing, wrong)
+    elif clath:
+        mode = 3
+        if not ice:
+            missing.append('Th CO₂ с направлением гомогенизации (режимы 1–2) либо Tm льда (режим 3, если жидкой CO₂ '
+                           'во включении нет)')
+        else:
+            extra['Tm_ice'] = ice[0]['temperature_c']
+        _flag_state(o_cl, 'aqueous_brine_present', True, missing, wrong)
+        _flag_state(o_cl, 'liquid_co2_present', False, missing, wrong)
+        _flag_state(o_cl, 'vapor_co2_present', True, missing, wrong)
+        if o_cl.get('co2_purity_confirmed') is not True:
+            missing.append('приближение чистой CO₂ не принято явно (флажок у наблюдения Tm клатрата)')
+    if clath:
+        extra['Tm_clath'] = tm
+    extra['mode'] = mode
+
+    # чем задаётся количество углекислотной фазы: измеренной долей (основной путь) или Th общ.
+    o_tot = th_tot[0] if th_tot else None
+    tot_liquid = o_tot is not None and o_tot.get('homogenization_to') == 'liquid'
+    if o_tot is not None:
+        extra.update({'Th_total': o_tot['temperature_c'], 'Th_total_to': o_tot.get('homogenization_to')})
+    by_fraction = phi is not None
+    if by_fraction:
+        if phi_t is None:
+            missing.append('температура, при которой оценена доля φ (контекстное меню включения → «Доля '
+                           'углекислотной фазы…»)')
+    elif o_tot is None:
+        missing.append('объёмная доля углекислотных фаз φ с температурой оценки (контекстное меню включения → '
+                       '«Доля углекислотной фазы…»); при её отсутствии — Th общ. с гомогенизацией в жидкость')
+    elif o_tot.get('homogenization_to') is None:
+        missing.append('доля φ не указана, а у Th общ. не указано направление гомогенизации (расчёт по Th общ. '
+                       'возможен только при гомогенизации в жидкость)')
+    elif not tot_liquid:
+        return fail('Доля углекислотных фаз φ не указана, а Th общ. — не в жидкость: расчёт по Th общ. определён '
+                    'только для гомогенизации в водную жидкость. Укажите φ.')
+    head = 'Строгая модель H₂O–CO₂–NaCl' + (f' ({PVTX_MODES[mode]})' if mode else '')
+    if wrong:
+        return fail(f'{head}: записанные фазы не соответствуют режиму — ' + '; '.join(wrong) + '. Проверьте '
+                    'наблюдения: режим определяется порядком Tm клатрата и Th CO₂ и фазами при плавлении клатрата.')
+    if missing:
+        return fail(f'{head}. Не хватает данных: ' + '; '.join(missing) + '.')
+
+    def run(fraction):
+        kw = (dict(carbonic_fraction=fraction, fraction_temperature_c=phi_t) if by_fraction else
+              dict(total_homogenization_c=o_tot['temperature_c'], total_homogenization_to='liquid'))
+        if mode == 1:
+            return model.mode1(tm, th, branch, **kw)
+        if mode == 2:
+            return model.mode2(tm, th, branch, **kw)
+        return model.mode3(ice[0]['temperature_c'], tm, **kw)
+
+    try:
+        r = run(phi)
+    except model.ConvergenceError as exc:
+        return fail(f'{head}: СХОДИМОСТЬ НЕ ДОСТИГНУТА, результат не выдаётся. {exc}')
+    except model.NonPhysicalSolutionError as exc:
+        return fail(f'{head}: решение физически недопустимо для этих наблюдений, результат не выдаётся. {exc}')
+    except (ValueError, TypeError, ArithmeticError) as exc:
+        return fail(f'{head}: {exc}')
+
+    out = Outcome('ok', value=r.density_g_cm3, unit='г/см³', result_kind=KIND_RESULT_LABEL['h2o_co2_nacl_sm2018'],
+                  **base)
+    out.assumptions = ' '.join(meta['assumptions'])
+    out.scope = meta['range']
+    ex = out.extras
+    ex.update({'mode': mode, 'mode_title': PVTX_MODES[mode],
+               'fraction_source': 'измеренная доля φ' if by_fraction else 'Th общ. (доля φ не измерена)',
+               'x_h2o': r.x_h2o, 'x_nacl': r.x_nacl, 'x_co2': r.x_co2,
+               'salinity_bulk_wt_pct': r.salinity_wt_pct, 'co2_mol_pct_salt_free': r.co2_mol_pct_salt_free,
+               'molar_volume_cm3_mol': r.molar_volume_cm3_mol, 'density_g_cm3': r.density_g_cm3,
+               'salinity_at_tm_clath_wt_pct': r.salinity_at_tm_clath_wt_pct,
+               'pressure_at_tm_clath_bar': r.pressure_at_tm_clath_bar,
+               'salinity_at_th_co2_wt_pct': r.salinity_at_th_co2_wt_pct,
+               'pressure_at_th_co2_bar': r.pressure_at_th_co2_bar,
+               'salinity_at_tm_ice_wt_pct': r.salinity_at_tm_ice_wt_pct,
+               'pressure_at_tm_ice_bar': r.pressure_at_tm_ice_bar,
+               'carbonic_fraction_at_th_co2': r.carbonic_fraction_at_th_co2,
+               'carbonic_fraction_at_tm_clath': r.carbonic_fraction_at_tm_clath,
+               'converged': r.converged, 'residuals': dict(r.residuals),
+               'phase_fractions': {k: dict(v) for k, v in r.phase_fractions.items()}})
+    w = out.warnings
+    w.append('Давления при Tm клатрата, Th CO₂ и Tm льда — давления внутри включения при этих фазовых переходах; '
+             'это не давление захвата.')
+    if not by_fraction:
+        w.append('Доля углекислотных фаз не измерена: она найдена из условия гомогенизации в водную жидкость при '
+                 f'Th общ. (φ при {"Th CO₂" if mode == 1 else "Tm клатрата"} = '
+                 f'{format_value(100 * (r.carbonic_fraction_at_th_co2 if mode == 1 else r.carbonic_fraction_at_tm_clath), 1)} %).')
+        if o_tot['temperature_c'] > model.TH_TOTAL_APPROXIMATE_ABOVE_C:
+            w.append(f'ОРИЕНТИРОВОЧНО: расчёт по Th общ. выше {model.TH_TOTAL_APPROXIMATE_ABOVE_C:g} °C использует '
+                     'объёмные корреляции раствора за пределами их области (потеря точности выше 150–200 °C); состав '
+                     'и плотность — ориентировочные. Надёжнее задать измеренную долю φ.')
+    elif phi_u:
+        sens = []
+        for f in (min(0.999, phi + phi_u), max(0.001, phi - phi_u)):
+            try:
+                sens.append(run(f).density_g_cm3)
+            except (ValueError, ArithmeticError):
+                sens.append(None)
+        ex['rho_at_phi_plus_u'], ex['rho_at_phi_minus_u'] = sens
+        if None in sens:
+            w.append('При φ ± погрешность одна из границ не имеет допустимого решения — диапазон плотности неполный.')
+    else:
+        w.append('Погрешность φ не указана — диапазон плотности не оценивается, а именно φ обычно вносит основную '
+                 'неопределённость.')
+    if mode == 3:
+        w.append('Принято, что лёд окончательно плавился в присутствии клатрата и пара (точка Q1); если клатрата при '
+                 'плавлении льда не было, режим неприменим.')
+    if tm < 0:
+        w.append('Tm клатрата ниже 0 °C: растворимость CO₂ (Duan & Sun, 2003) используется ниже заявленной области '
+                 '(экстраполяция).')
+    if max(r.salinity_at_tm_clath_wt_pct, r.salinity_at_tm_ice_wt_pct or 0) > PVTX_SALINITY_WARN_WT:
+        w.append('Солёность раствора выше 4,3 моль/кг (≈ 20 мас. %): вне заявленной области модели растворимости '
+                 'CO₂ (Duan & Sun, 2003).')
+    if r.pressure_at_tm_clath_bar > PVTX_CLATHRATE_P_WARN_BAR:
+        w.append('Давление плавления клатрата выше 1 кбар: граница устойчивости клатрата с жидкой CO₂ в модели — '
+                 'прямые линии, расходящиеся с расчётами Bakker et al. (1996) на 2–6 °C.')
+    tm_co2 = [o.get('temperature_c') for o, _ in group if o.get('kind') == 'Tm_CO2']
+    if any(t is not None and t < -56.558 - CO2_IMPURITY_WARN_C for t in tm_co2):
+        w.append('Tm CO₂ ниже тройной точки чистой CO₂: вероятны примеси (CH₄, N₂); модель рассчитана для чистой CO₂.')
+
+    # изохора: давление однофазного флюида того же состава и объёма (правильный перевод °C → K)
+    try:
+        iso = duan1995.isochore(r.molar_volume_cm3_mol, r.x_h2o, r.x_nacl, r.x_co2)
+        ex.update({'isochore': [list(pt) for pt in iso.points], 'isochore_slope_bar_per_c': iso.slope_bar_per_c,
+                   'isochore_intercept_bar': iso.intercept_bar})
+        if iso.points:
+            w.append('Изохора — давление однофазного флюида того же состава и объёма (Duan et al., 1995; 300 °C и '
+                     'выше). Давление захвата по ней определяется только при независимой оценке температуры захвата.')
+        else:
+            w.append('Изохора не выведена: давление уравнения состояния при 300–600 °C вне области 0–6000 бар.')
+    except (ValueError, ArithmeticError, ZeroDivisionError) as exc:
+        iso = None
+        w.append(f'Изохора не рассчитана: {exc}')
+
+    # давления при Th общ.: линия расслоения и изохора — раздельно
+    if o_tot is not None:
+        t_tot = o_tot['temperature_c']
+        if not tot_liquid:
+            w.append('Th общ. записана не как гомогенизация в жидкость: давление на линии расслоения не рассчитывается '
+                     '(модель определена для гомогенизации в водную жидкость).')
+        else:
+            p_solv = r.pressure_at_th_total_bar
+            if p_solv is None:
+                try:
+                    p_solv = model.solvus_pressure_bar(t_tot, r.x_h2o, r.x_nacl, r.x_co2)
+                except (ValueError, ArithmeticError) as exc:
+                    w.append(f'Давление на линии расслоения при Th общ. не рассчитано: {exc}')
+            ex['pressure_solvus_th_total_bar'] = p_solv
+            if p_solv is not None and p_solv > PVTX_SOLVUS_P_MAX_BAR:
+                w.append('Давление на линии расслоения выше 1500 бар — вне заявленной области модели Mao et al. (2013).')
+            if r.x_nacl == 0 and t_tot + 273.15 > 523:
+                w.append('Солёность строго нулевая: для линии расслоения применён низкотемпературный набор параметров '
+                         'Mao et al. (2013) до 647 K (примечание к табл. 4 статьи). При малой ненулевой солёности '
+                         'модель переключается на другой набор, поэтому результат может измениться скачком.')
+            p_iso = None
+            if iso is not None:
+                if t_tot >= duan1995.ISOCHORE_T_MIN_C:
+                    try:
+                        p_iso = duan1995.pressure_bar(t_tot, r.molar_volume_cm3_mol, r.x_h2o, r.x_nacl, r.x_co2)
+                        ex['pressure_isochore_th_total_method'] = 'уравнение состояния Duan et al. (1995) при Th общ.'
+                    except (ValueError, ArithmeticError):
+                        p_iso = None
+                else:
+                    p_iso = iso.linear_pressure_at(t_tot)
+                    ex['pressure_isochore_th_total_method'] = ('ЭКСТРАПОЛЯЦИЯ прямой изохоры из интервала 350–500 °C '
+                                                               '(уравнение состояния ниже 300 °C не определено)')
+                    w.append('Давление по изохоре при Th общ. ниже 300 °C получено линейной экстраполяцией из интервала '
+                             '350–500 °C, а не расчётом по уравнению состояния.')
+            ex['pressure_isochore_th_total_bar'] = p_iso
+            if p_solv is not None and p_iso is not None:
+                ex['pressure_th_total_difference_bar'] = p_iso - p_solv
+                ex['pressure_th_total_difference_pct'] = 100 * (p_iso / p_solv - 1)
+                w.append('При Th общ. рассчитаны ДВА разных давления: на линии расслоения (Mao et al., 2013) — '
+                         f'{format_value(p_solv, 0)} бар и по изохоре (Duan et al., 1995) — {format_value(p_iso, 0)} бар; '
+                         f'расхождение {format_value(p_iso - p_solv, 0)} бар ({format_value(100 * (p_iso / p_solv - 1), 0)} %). '
+                         'Они получены разными моделями, не взаимозаменяемы и не являются давлением захвата.')
+    pseudo['extra_inputs'] = extra
+    return pseudo, out
+
+
 def derive_inclusion_results(items: list[tuple[dict, Outcome]]) -> list[tuple[dict, Outcome]]:
     """Производные результаты по включениям на основе уже рассчитанных наблюдений того же расчёта."""
     groups: dict = {}
@@ -448,7 +775,7 @@ def derive_inclusion_results(items: list[tuple[dict, Outcome]]) -> list[tuple[di
             groups.setdefault(key, []).append((obs, out))
     derived = []
     for group in groups.values():
-        for fn in (_bulk_density_outcome, _aqueous_outcome):
+        for fn in (_bulk_density_outcome, _pvtx_outcome, _aqueous_outcome):
             r = fn(group)
             if r is not None:
                 derived.append(r)

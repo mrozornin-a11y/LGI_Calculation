@@ -90,7 +90,7 @@ class ObservationDialog(QDialog):
         self.homog.setEnabled(k in ('Th_CO2', 'Th_total'))
         for w in (self.liquid, self.vapor, self.brine):
             w.setEnabled(k == 'Tm_clath')
-        self.purity.setEnabled(k == 'Th_CO2')
+        self.purity.setEnabled(k in ('Th_CO2', 'Tm_clath'))
         self.hint.setText(REQUIREMENTS.get(k) or KIND_NO_CALC_REASON.get(k, ''))
 
     def _accept(self):
@@ -115,7 +115,8 @@ class ObservationDialog(QDialog):
             'liquid_co2_present': self.liquid.value() if k == 'Tm_clath' else None,
             'vapor_co2_present': self.vapor.value() if k == 'Tm_clath' else None,
             'aqueous_brine_present': self.brine.value() if k == 'Tm_clath' else None,
-            'co2_purity_confirmed': (True if self.purity.isChecked() else None) if k == 'Th_CO2' else None,
+            'co2_purity_confirmed': ((True if self.purity.isChecked() else None)
+                                     if k in ('Th_CO2', 'Tm_clath') else None),
             'phase_notes': self.phase_notes.text().strip() or None,
             'comment': self.comment.text().strip() or None,
             'source': 'ручной ввод',
@@ -412,7 +413,9 @@ class CarbonicFractionDialog(QDialog):
         form.addRow('Температура оценки, °C', self.temp)
         lay.addLayout(form)
         hint = QLabel('φ — доля всей углекислотной фазы (жидкая + газовая CO₂) в объёме включения. Используется '
-                      'для плотности включения по объёмному балансу; основная неопределённость результата — именно φ.')
+                      'строгой моделью H₂O–CO₂–NaCl и объёмным балансом; основная неопределённость результата — '
+                      'именно φ. Для строгой модели температура оценки обязательна и должна быть не ниже Tm клатрата; '
+                      'программа её не подставляет.')
         hint.setWordWrap(True)
         hint.setStyleSheet('color:#52514e')
         lay.addWidget(hint)

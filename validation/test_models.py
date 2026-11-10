@@ -174,9 +174,27 @@ class TestStage2bPart5(unittest.TestCase):
         rows = V.evaluate_mao_tables()
         self.assertEqual(len(rows), 74)
         self.assertTrue(all(abs(g / x - 1) < 0.015 for m, _, _, x, g in rows if m > 0))
-        self.assertTrue(all(abs(g / x - 1) < 0.003 for m, tk, _, x, g in rows if m == 0 and tk < 503))
-        # чистая вода выше 523 K: программа автора использует другой набор параметров, чем статья (Q30)
-        self.assertTrue(any(abs(g / x - 1) > 0.2 for m, tk, _, x, g in rows if m == 0 and tk > 523))
+        # чистая вода: по умолчанию применяется оговорка статьи (низкотемпературный набор до 647 K, Q30) —
+        # таблица 7 воспроизводится на всём интервале
+        self.assertTrue(all(abs(g / x - 1) < 0.006 for m, _, _, x, g in rows if m == 0))
+        # программа автора выше 523 K берёт другой набор параметров и расходится с таблицей статьи
+        author = V.evaluate_mao_tables('author')
+        self.assertTrue(any(abs(g / x - 1) > 0.2 for m, tk, _, x, g in author if m == 0 and tk > 523))
+        # с солью выбор набора параметров одинаков; остаётся только сдвиг ln φ в схеме автора (Q22):
+        # до 0,55 % для плотной CO₂ (323 K, 1500 бар)
+        self.assertTrue(all(abs(a[4] / e[4] - 1) < 1e-2 for e, a in zip(rows, author) if e[0] > 0))
+
+    def test_working_isochore_differs_from_author_as_documented(self):
+        d = V.evaluate_working_isochore()
+        self.assertTrue(1e-4 < d['pressure'] < 1e-2)        # 0,15 K: до 0,7 % по давлению
+        self.assertLess(d['slope'], 2e-2)
+
+    def test_pure_water_exemption_changes_results_only_above_250(self):
+        rows = V.evaluate_pure_water_exemption()
+        low = rows[0]                                        # 200 °C: наборы совпадают (ниже 503 K)
+        self.assertAlmostEqual(low[3] / low[7], 1, delta=1e-3)
+        hot = next(r for r in rows if r[0] == 300.0)
+        self.assertGreater(abs(hot[3] / hot[7] - 1), 0.02)   # плотность меняется на проценты
 
     def test_th_total_cases(self):
         rows = V.evaluate_th_total_vs_sm2018()

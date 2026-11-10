@@ -73,8 +73,10 @@ class TestRead(Case):
         self.assertEqual(kinds['Th_CO2']['homogenization_to'], 'liquid')
         self.assertIs(kinds['Th_CO2']['co2_purity_confirmed'], True)
         self.assertIs(kinds['Tm_clath']['liquid_co2_present'], True)
+        # приближение чистой CO₂ относится и к Tm клатрата (режим 3 строгой модели H₂O–CO₂–NaCl: Th CO₂ нет)
+        self.assertIs(kinds['Tm_clath']['co2_purity_confirmed'], True)
         # признаки не переносятся на наблюдения, к которым они не относятся
-        self.assertIsNone(kinds['Tm_clath']['co2_purity_confirmed'])
+        self.assertIsNone(kinds['Th_total']['co2_purity_confirmed'])
         self.assertIsNone(kinds['Th_total']['liquid_co2_present'])
         self.assertIsNone(kinds['Th_CO2']['vapor_co2_present'])
 
