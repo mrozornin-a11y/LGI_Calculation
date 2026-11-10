@@ -1,4 +1,4 @@
-"""Этап 2б, часть 4: режим 1 модели H₂O–CO₂–NaCl (Tm клатрата ≤ Th CO₂)."""
+"""Этап 2б, часть 4: режимы 1–3 модели H₂O–CO₂–NaCl."""
 import csv
 import unittest
 from pathlib import Path
@@ -74,6 +74,91 @@ class TestMode1(unittest.TestCase):
                 M.mode1(*args, **kw)
         with self.assertRaises(TypeError):
             M.mode1(5.0, 20.0, 'liquid', True)
+
+
+def _oracle():
+    with open(ROOT / 'validation' / 'data' / 'sm2018_oracle.csv', encoding='utf-8') as fh:
+        return {r['case']: r for r in csv.DictReader(fh)}
+
+
+class TestMode2(unittest.TestCase):
+    def test_matches_author_program(self):
+        rows = _oracle()
+        for case in ('SM39', 'SM40'):
+            r = rows[case]
+            with self.subTest(case):
+                o = M.mode2(float(r['Tm_clath']), float(r['Th_CO2']), 'liquid' if r['homog_to'] == 'L' else 'vapor',
+                            float(r['PhiVap_pct']) / 100, M.ROOM_TEMPERATURE_C)
+                for got, key in ((o.x_nacl, 'X_NaCl'), (o.x_co2, 'X_CO2'), (o.salinity_wt_pct, 'wt_pct_NaCl'),
+                                 (o.molar_volume_cm3_mol, 'V_cm3_mol'), (o.density_g_cm3, 'rho_g_cm3')):
+                    self.assertAlmostEqual(got / float(r[key]), 1, delta=1e-4, msg=key)
+
+    def test_converged_solution(self):
+        liq = M.mode2(8.0, 5.0, 'liquid', 0.3, numerics='exact')
+        vap = M.mode2(8.0, 5.0, 'vapor', 0.3, numerics='exact')
+        self.assertEqual(liq.mode, 2)
+        self.assertEqual(liq.carbonic_fraction_at_tm_clath, 0.3)
+        # давление плавления клатрата: выше давления насыщения CO₂ для жидкости, ниже — для пара
+        psat = C.q2_pressure_bar(8.0)
+        self.assertGreater(liq.pressure_at_tm_clath_bar, psat)
+        self.assertLess(vap.pressure_at_tm_clath_bar, psat)
+        # солёность: при той же Tm клатрата с жидкой CO₂ — выше, с паром — ниже, чем по уравнению Darling (Q2)
+        darling = C.q2_salinity(8.0)
+        self.assertGreater(liq.salinity_at_tm_clath_wt_pct, darling)
+        self.assertLess(vap.salinity_at_tm_clath_wt_pct, darling)
+        self.assertGreater(liq.density_g_cm3, vap.density_g_cm3)
+        self.assertAlmostEqual(liq.x_nacl + liq.x_co2 + liq.x_h2o, 1, delta=1e-12)
+        # условия на границе клатрата выполнены
+        self.assertAlmostEqual(C.laq_lcarb_c_pressure_bar(8.0, liq.salinity_at_tm_clath_wt_pct),
+                               liq.pressure_at_tm_clath_bar, delta=1e-6)
+        self.assertAlmostEqual(C.laq_v_c_pressure_bar(8.0, vap.salinity_at_tm_clath_wt_pct),
+                               vap.pressure_at_tm_clath_bar, delta=1e-6)
+
+    def test_author_iteration_is_close_to_converged(self):
+        a = M.mode2(8.0, 5.0, 'liquid', 0.3, numerics='author')
+        e = M.mode2(8.0, 5.0, 'liquid', 0.3, numerics='exact')
+        self.assertAlmostEqual(a.density_g_cm3 / e.density_g_cm3, 1, delta=2e-4)
+        self.assertAlmostEqual(a.salinity_wt_pct / e.salinity_wt_pct, 1, delta=5e-3)
+
+    def test_domain(self):
+        for args in ((3.0, 5.0, 'liquid', 0.3), (8.0, 5.0, 'gas', 0.3), (11.0, 5.0, 'vapor', 0.3),
+                     (-10.0, -12.0, 'liquid', 0.3), (8.0, 5.0, 'liquid', 1.2), (8.0, 5.0, 'liquid', 0.3, 6.0)):
+            with self.subTest(args), self.assertRaises(ValueError):
+                M.mode2(*args)
+
+
+class TestMode3(unittest.TestCase):
+    def test_matches_author_program(self):
+        r = _oracle()['SM41']
+        o = M.mode3(float(r['Tm_ice']), float(r['Tm_clath']), float(r['PhiVap_pct']) / 100)
+        for got, key in ((o.x_nacl, 'X_NaCl'), (o.x_co2, 'X_CO2'), (o.salinity_wt_pct, 'wt_pct_NaCl'),
+                         (o.molar_volume_cm3_mol, 'V_cm3_mol'), (o.density_g_cm3, 'rho_g_cm3')):
+            self.assertAlmostEqual(got / float(r[key]), 1, delta=1e-10, msg=key)
+
+    def test_converged_solution(self):
+        o = M.mode3(-5.0, 5.0, 0.2, numerics='exact')
+        self.assertEqual(o.mode, 3)
+        self.assertAlmostEqual(o.salinity_at_tm_ice_wt_pct, C.q1_salinity(-5.0), delta=1e-12)
+        self.assertAlmostEqual(o.pressure_at_tm_ice_bar, C.q1_pressure_bar(-5.0), delta=1e-12)
+        self.assertAlmostEqual(C.laq_v_c_pressure_bar(5.0, o.salinity_at_tm_clath_wt_pct), o.pressure_at_tm_clath_bar,
+                               delta=1e-9)
+        # при Tm льда часть воды связана в клатрате, поэтому раствор там солонее, чем после плавления клатрата
+        self.assertLess(o.salinity_at_tm_clath_wt_pct, o.salinity_at_tm_ice_wt_pct)
+        self.assertLess(o.pressure_at_tm_clath_bar, C.q2_pressure_bar(5.0))
+        a = M.mode3(-5.0, 5.0, 0.2, numerics='author')
+        self.assertAlmostEqual(a.salinity_wt_pct / o.salinity_wt_pct, 1, delta=5e-3)      # критерий 0,02 см³/моль
+        self.assertNotEqual(a.salinity_wt_pct, o.salinity_wt_pct)
+
+    def test_fraction_at_room_temperature(self):
+        o = M.mode3(-5.0, 5.0, 0.2, M.ROOM_TEMPERATURE_C, numerics='exact')
+        self.assertNotEqual(o.carbonic_fraction_at_tm_clath, 0.2)
+        self.assertAlmostEqual(o.carbonic_fraction_at_tm_clath, 0.2, delta=0.02)
+
+    def test_domain(self):
+        for args in ((-1.0, 5.0, 0.2), (-5.0, 11.0, 0.2), (-5.0, -6.0, 0.2), (-25.0, 5.0, 0.2), (-5.0, 5.0, 0.0),
+                     (-5.0, 5.0, 0.2, 2.0)):
+            with self.subTest(args), self.assertRaises(ValueError):
+                M.mode3(*args)
 
 
 if __name__ == '__main__':

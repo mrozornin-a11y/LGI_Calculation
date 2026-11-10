@@ -501,3 +501,51 @@ def evaluate_rogers_pitzer() -> list[RogersPitzerRow]:
                                    B._nacl_limiting_volume(t, 400.0), bmx / float(r['B']) - 1,
                                    cmx / float(r['C2']) - 1))
     return out
+
+
+# --- Этап 2б, часть 4: режимы 2 и 3 против эталонного прогона ---------------------------------------------------------
+_SM_KEYS = (('X_NaCl', 'x_nacl'), ('X_CO2', 'x_co2'), ('X_H2O', 'x_h2o'), ('wt_pct_NaCl', 'salinity_wt_pct'),
+            ('V', 'molar_volume_cm3_mol'), ('rho', 'density_g_cm3'))
+_SM_COLUMNS = {'V': 'V_cm3_mol', 'rho': 'rho_g_cm3'}
+
+
+@dataclass
+class ModeRow:
+    case: str
+    mode: int
+    inputs: str
+    deviations: dict                 # 'author' против эталона
+    exact_deviations: dict           # 'exact' (уравнения решены до сходимости) против эталона
+    pressure_tm_clath_bar: float     # давление плавления клатрата (решение до сходимости)
+    salinity_tm_clath: float
+
+    @property
+    def status(self):
+        return 'PASS' if all(abs(d) <= SM2018_SOLVER_REL_TOL for d in self.deviations.values()) else 'FAIL'
+
+
+def evaluate_modes23_vs_sm2018() -> list[ModeRow]:
+    from fluid_core import h2o_co2_nacl as M
+    out = []
+    with open(SM2018_CSV, encoding='utf-8', newline='') as fh:
+        for r in csv.DictReader(fh):
+            mode = int(r['mode'][0])
+            if mode not in (2, 3) or not r['PhiVap_pct']:
+                continue
+            t_phi = M.ROOM_TEMPERATURE_C if r['PhiVap_T'] == 'room' else (float(r['PhiVap_T']) if r['PhiVap_T'] else None)
+            phi = float(r['PhiVap_pct']) / 100
+
+            def run(numerics):
+                if mode == 2:
+                    return M.mode2(float(r['Tm_clath']), float(r['Th_CO2']), 'liquid' if r['homog_to'] == 'L' else 'vapor',
+                                   phi, t_phi, numerics=numerics)
+                return M.mode3(float(r['Tm_ice']), float(r['Tm_clath']), phi, t_phi, numerics=numerics)
+
+            def dev(o):
+                return {k: getattr(o, a) / float(r[_SM_COLUMNS.get(k, k)]) - 1 for k, a in _SM_KEYS}
+            a, e = run('author'), run('exact')
+            inputs = (f'Tm клатрата {r["Tm_clath"]}, Th CO₂ {r["Th_CO2"]} ({r["homog_to"]})' if mode == 2
+                      else f'Tm льда {r["Tm_ice"]}, Tm клатрата {r["Tm_clath"]}')
+            out.append(ModeRow(r['case'], mode, f'{inputs}, φ {r["PhiVap_pct"]} % ({r["PhiVap_T"] or "при Tm клатрата"})',
+                               dev(a), dev(e), e.pressure_at_tm_clath_bar, e.salinity_at_tm_clath_wt_pct))
+    return out
