@@ -473,3 +473,31 @@ def evaluate_mode1_vs_sm2018(with_exact: bool = True) -> list[Mode1Row]:
                                 float(r['PhiVap_pct']), _mode1_deviations(r, 'author'),
                                 _mode1_deviations(r, 'exact') if with_exact else {}))
     return out
+
+
+# --- Rogers & Pitzer (1982), табл. A-1: проверка переноса B, C и характеристика регрессий автора программы ---------
+ROGERS_PITZER_CSV = HERE / 'data' / 'rogers_pitzer1982_a1_400bar.csv'
+
+
+@dataclass
+class RogersPitzerRow:
+    t_c: float
+    av_table: float
+    av_regression: float
+    v0_table: float
+    v0_regression: float
+    b_rel_dev: float                 # относительное отклонение B модуля от таблицы
+    c_rel_dev: float                 # то же для 2C
+
+
+def evaluate_rogers_pitzer() -> list[RogersPitzerRow]:
+    from fluid_core import co2_brine as B
+    rows = _data_rows(ROGERS_PITZER_CSV)
+    out = []
+    for r in (dict(zip(rows[0], x)) for x in rows[1:]):
+        t = float(r['T_C'])
+        bmx, cmx = B._pitzer_b_c(t + 273.15, 400.0)
+        out.append(RogersPitzerRow(t, float(r['Av']), B._debye_huckel_slope(t, 400.0), float(r['V0']),
+                                   B._nacl_limiting_volume(t, 400.0), bmx / float(r['B']) - 1,
+                                   cmx / float(r['C2']) - 1))
+    return out

@@ -106,6 +106,18 @@ class TestStage2bPart3(unittest.TestCase):
             self.assertTrue(0.5 < m < 2.0 and 1.0 < rho < 1.15 and 0 < y < 0.01)
 
 
+class TestRogersPitzer(unittest.TestCase):
+    def test_table_a1(self):
+        """B и 2C совпадают с табл. A-1 статьи; регрессии автора для V° и Av пригодны до 150 °C."""
+        rows = V.evaluate_rogers_pitzer()
+        self.assertEqual(len(rows), 12)
+        self.assertTrue(all(abs(r.b_rel_dev) < 1e-3 and abs(r.c_rel_dev) < 5e-3 for r in rows))
+        low = [r for r in rows if r.t_c <= 150]
+        self.assertTrue(all(abs(r.v0_regression - r.v0_table) < 0.06 for r in low))
+        self.assertTrue(all(abs(r.av_regression / r.av_table - 1) < 0.05 for r in low))
+        self.assertGreater(abs(rows[-1].v0_regression - rows[-1].v0_table), 50)      # 300 °C: непригодна
+
+
 class TestMode1VsSM2018(unittest.TestCase):
     """Этап 2б, часть 4: режим 1 против эталонного прогона программы автора."""
     def test_all_cases_match(self):
