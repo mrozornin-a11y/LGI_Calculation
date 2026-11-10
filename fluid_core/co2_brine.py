@@ -170,10 +170,23 @@ def _nacl_limiting_volume(t_c, p):
             + dt ** 4 * -2.40216101278E-08 + dt ** 5 * 1.61470571680867E-10)
 
 
+def _pitzer_b_c(t, p):
+    """Параметры B и 2C уравнения Rogers & Pitzer (1982), ур. 24–25 (T в K, P в бар)."""
+    u, c = _RP_LOW if t <= 323.15 else _RP_HIGH
+    dp = p - 1.01325
+    bmx = (u[0] + u[1] / (t - 227) + u[2] * t + u[3] * t ** 2 + u[4] / (680 - t)
+           + dp * (u[5] + u[6] / (t - 227) + u[7] * t + u[8] * t ** 2 + u[9] / (680 - t))
+           + dp ** 2 * (u[10] + u[11] / (t - 227) + u[12] * t + u[13] / (680 - t)))
+    cmx = c[0] + c[1] / (t - 227) + c[2] * t + c[3] * t ** 2 + c[4] / (680 - t)
+    return bmx, cmx
+
+
 def nacl_apparent_molar_volume(t_c: float, p_bar: float, molality: float) -> float:
     """Кажущийся молярный объём NaCl в растворе, см³/моль (Rogers & Pitzer, 1982, в записи программы автора).
 
     При нулевой моляльности программа автора возвращает 0 (вклад соли в объём отсутствует) — так же и здесь.
+    Регрессии автора программы для V° и Av близки к табл. A-1 Rogers & Pitzer до ~150 °C и непригодны выше
+    200 °C (V° при 300 °C: +18 вместо −45 см³/моль); сами параметры B и C совпадают с таблицей.
     """
     t = _tk(t_c)
     p = _pos(p_bar, 'Давление')
@@ -182,12 +195,7 @@ def nacl_apparent_molar_volume(t_c: float, p_bar: float, molality: float) -> flo
         raise ValueError('Моляльность NaCl не может быть отрицательной')
     if m == 0:
         return 0.0
-    u, c = _RP_LOW if t <= 323.15 else _RP_HIGH
-    dp = p - 1.01325
-    bmx = (u[0] + u[1] / (t - 227) + u[2] * t + u[3] * t ** 2 + u[4] / (680 - t)
-           + dp * (u[5] + u[6] / (t - 227) + u[7] * t + u[8] * t ** 2 + u[9] / (680 - t))
-           + dp ** 2 * (u[10] + u[11] / (t - 227) + u[12] * t + u[13] / (680 - t)))
-    cmx = c[0] + c[1] / (t - 227) + c[2] * t + c[3] * t ** 2 + c[4] / (680 - t)
+    bmx, cmx = _pitzer_b_c(t, p)
     h = log(1 + 1.2 * sqrt(m)) / 2.4
     tc = t - 273.15
     return (_nacl_limiting_volume(tc, p) + 2 * _debye_huckel_slope(tc, p) * h

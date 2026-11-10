@@ -106,6 +106,18 @@ class TestStage2bPart3(unittest.TestCase):
             self.assertTrue(0.5 < m < 2.0 and 1.0 < rho < 1.15 and 0 < y < 0.01)
 
 
+class TestRogersPitzer(unittest.TestCase):
+    def test_table_a1(self):
+        """B и 2C совпадают с табл. A-1 статьи; регрессии автора для V° и Av пригодны до 150 °C."""
+        rows = V.evaluate_rogers_pitzer()
+        self.assertEqual(len(rows), 12)
+        self.assertTrue(all(abs(r.b_rel_dev) < 1e-3 and abs(r.c_rel_dev) < 5e-3 for r in rows))
+        low = [r for r in rows if r.t_c <= 150]
+        self.assertTrue(all(abs(r.v0_regression - r.v0_table) < 0.06 for r in low))
+        self.assertTrue(all(abs(r.av_regression / r.av_table - 1) < 0.05 for r in low))
+        self.assertGreater(abs(rows[-1].v0_regression - rows[-1].v0_table), 50)      # 300 °C: непригодна
+
+
 class TestMode1VsSM2018(unittest.TestCase):
     """Этап 2б, часть 4: режим 1 против эталонного прогона программы автора."""
     def test_all_cases_match(self):
@@ -116,6 +128,20 @@ class TestMode1VsSM2018(unittest.TestCase):
         # точное решение уравнения CO₂ вместо схемы автора меняет плотность меньше чем на 0,01 % (Q22)
         self.assertLess(max(abs(r.exact_deviations['rho']) for r in rows), 1e-4)
         self.assertLess(max(abs(r.exact_deviations['X_CO2']) for r in rows), 1e-3)
+
+
+class TestModes23VsSM2018(unittest.TestCase):
+    """Этап 2б, часть 4: режимы 2 и 3 против эталонного прогона программы автора."""
+    def test_cases_match(self):
+        rows = V.evaluate_modes23_vs_sm2018()
+        self.assertEqual([(r.case, r.mode) for r in rows], [('SM39', 2), ('SM40', 2), ('SM41', 3)])
+        self.assertTrue(all(r.status == 'PASS' for r in rows))
+        sm41 = rows[2]
+        self.assertLess(max(abs(d) for d in sm41.deviations.values()), 1e-10)     # деление пополам шаг в шаг
+        # решение до сходимости отличается от программы автора (её критерии остановки, Q29)
+        self.assertGreater(abs(sm41.exact_deviations['wt_pct_NaCl']), 1e-3)
+        self.assertTrue(all(abs(r.exact_deviations['rho']) < 2e-4 for r in rows))
+        self.assertTrue(all(abs(r.exact_deviations['wt_pct_NaCl']) < 5e-3 for r in rows))
 
 
 if __name__ == '__main__':
