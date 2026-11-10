@@ -54,5 +54,34 @@ class TestCo2Duan1992(unittest.TestCase):
         self.assertTrue(any(abs(r.p_duan_liquid / r.p_eq - 1) > 0.05 for r in rows))
 
 
+class TestDuanTable5(unittest.TestCase):
+    def test_published_fugacity_coefficients(self):
+        """Перенос уравнения Duan et al. (1992a) против табл. 5 самой статьи."""
+        rows = V.evaluate_duan_table5()
+        self.assertEqual(len(rows), 117)
+        self.assertTrue(all(abs(m / x - 1) <= V.PUBLISHED_TABLE_REL_TOL for _, _, x, m in rows))
+
+
+class TestClathrateBoundaries(unittest.TestCase):
+    """Этап 2б, часть 2: корреляции Steele-MacInnis (2018) против таблиц Bakker et al. (1996)."""
+    def test_against_bakker(self):
+        rows = V.evaluate_clathrate_boundaries()
+        self.assertEqual(len(rows), 57)
+        st = V.clathrate_boundary_statistics(rows)
+        self.assertLess(st['q1_dt'], 0.03)
+        self.assertLess(st['q1_dp_pct'], 0.25)
+        self.assertLess(st['q2_dt_chen'], 0.02)
+        self.assertLess(st['q2_dt_bakker'], 0.6)
+        self.assertLess(st['q2_dp_pct'], 1.5)
+        self.assertLess(st['gc_dp_pct'], 4.0)
+        self.assertLess(st['lc_dt_to_1kbar'], 1.5)
+        self.assertGreater(st['lc_dt_above_1kbar'], 3.0)      # выше 1 кбар прямая ур. 23 расходится с Bakker (Q25)
+
+    def test_clathrate_properties(self):
+        for _, _, comp, _, rho in V.evaluate_clathrate_properties():
+            self.assertTrue(5.75 < comp.hydration_number < 7.0)
+            self.assertTrue(1.05 < rho < 1.15)
+
+
 if __name__ == '__main__':
     unittest.main()

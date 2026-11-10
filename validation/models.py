@@ -253,3 +253,90 @@ def evaluate_co2_saturation() -> list[Co2SatRow]:
                               D.pressure_bar(t, vl), D.pressure_bar(t, vv),
                               D.ln_fugacity_coefficient(t, p, vl), D.ln_fugacity_coefficient(t, p, vv)))
     return rows
+
+
+DUAN_TABLE5_CSV = HERE / 'data' / 'duan1992_table5.csv'
+BAKKER_TABLE4_CSV = HERE / 'data' / 'bakker1996_table4.csv'
+PUBLISHED_TABLE_REL_TOL = 5e-4      # таблица Duan et al. (1992a) напечатана с 4 значащими цифрами
+
+
+def _data_rows(path):
+    with open(path, encoding='utf-8', newline='') as fh:
+        return list(csv.reader(line for line in fh if not line.startswith('#')))
+
+
+def evaluate_duan_table5() -> list[tuple[float, float, float, float]]:
+    """(T, P, φ из табл. 5 статьи, φ модуля): проверка переноса коэффициентов по первоисточнику."""
+    from math import exp
+    from fluid_core import co2_duan1992 as D
+    rows = _data_rows(DUAN_TABLE5_CSV)
+    temps = [float(x) for x in rows[0][1:]]
+    return [(t, float(r[0]), float(x), exp(D.state(t, float(r[0])).ln_fugacity_coefficient))
+            for r in rows[1:] for t, x in zip(temps, r[1:])]
+
+
+# --- Этап 2б, часть 2: границы устойчивости клатрата против Bakker et al. (1996) ----------------------------------
+@dataclass
+class ClathrateBoundaryRow:
+    salinity: float
+    element: str                     # Q1 | Q2 | HLwGc | HLwLc
+    t_c: float                       # температура из таблицы Bakker
+    p_bar: float                     # давление из таблицы Bakker
+    t_chen_c: float | None           # Q2: температура по Chen (1972b)
+    t_model_c: float | None          # Q1, Q2: температура точки; HLwLc: температура модели при давлении Bakker
+    p_model_bar: float               # давление модели (Q1, Q2 — в точке модели; иначе при температуре Bakker)
+
+    @property
+    def dt(self):
+        return None if self.t_model_c is None else self.t_model_c - self.t_c
+
+    @property
+    def dp_pct(self):
+        return 100 * (self.p_model_bar / self.p_bar - 1)
+
+
+def evaluate_clathrate_boundaries() -> list[ClathrateBoundaryRow]:
+    from fluid_core import clathrate as C
+    rows = _data_rows(BAKKER_TABLE4_CSV)
+    out = []
+    for r in (dict(zip(rows[0], x)) for x in rows[1:]):
+        s, t, p, e = float(r['wt_pct_NaCl']), float(r['T_K']) - 273.15, float(r['P_MPa']) * 10, r['element']
+        chen = float(r['T_chen_K']) - 273.15 if r['T_chen_K'] else None
+        if e == 'Q1':
+            tm = C.q1_temperature_c(s)
+            pm = C.q1_pressure_bar(tm)
+        elif e == 'Q2':
+            tm = C.q2_temperature_c(s)
+            pm = C.q2_pressure_bar(tm)
+        elif e == 'HLwGc':
+            tm, pm = None, C.laq_v_c_pressure_bar(t, s)
+        else:
+            tq2 = C.q2_temperature_c(s)
+            tm = tq2 + (p - C.q2_pressure_bar(tq2)) / C.laq_lcarb_c_slope_bar_per_c(s)
+            pm = C.laq_lcarb_c_pressure_bar(t, s)
+        out.append(ClathrateBoundaryRow(s, e, t, p, chen, tm, pm))
+    return out
+
+
+def clathrate_boundary_statistics(rows: list[ClathrateBoundaryRow]) -> dict:
+    def sel(e):
+        return [r for r in rows if r.element == e]
+    lc = sel('HLwLc')
+    return {'q1_dt': max(abs(r.dt) for r in sel('Q1')), 'q1_dp_pct': max(abs(r.dp_pct) for r in sel('Q1')),
+            'q2_dt_bakker': max(abs(r.dt) for r in sel('Q2')),
+            'q2_dt_chen': max(abs(r.t_model_c - r.t_chen_c) for r in sel('Q2') if r.t_chen_c is not None),
+            'q2_dp_pct': max(abs(r.dp_pct) for r in sel('Q2')),
+            'gc_dp_pct': max(abs(r.dp_pct) for r in sel('HLwGc')),
+            'lc_dt_to_1kbar': max(abs(r.dt) for r in lc if r.p_bar <= 1000),
+            'lc_dt_above_1kbar': max(abs(r.dt) for r in lc if r.p_bar > 1000)}
+
+
+def evaluate_clathrate_properties() -> list[tuple]:
+    """Состав и плотность клатрата на кривой «раствор – пар – клатрат» без соли (характерные значения)."""
+    from fluid_core import clathrate as C, co2_duan1992 as D
+    out = []
+    for t in (-1.48, 0.0, 2.0, 4.0, 6.0, 8.0, 9.9):
+        p = C.laq_v_c_pressure_bar(t, 0.0)
+        comp = C.clathrate_composition(t, p, D.state(t, p).ln_fugacity_coefficient)
+        out.append((t, p, comp, C.clathrate_molar_volume(t, p, comp.x_h2o), C.clathrate_density_g_cm3(t, p, comp)))
+    return out
