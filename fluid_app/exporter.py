@@ -7,7 +7,8 @@ from pathlib import Path
 from .calc import passport_lines
 from .db import Database
 from .methods import (METHODS, GENERAL_LIMITATIONS, NOT_IMPLEMENTED_MODELS, PENDING_VALIDATION,
-                      HOMOGENIZATION, STATUS_RU, kind_label)
+                      HOMOGENIZATION, STATUS_RU, CATEGORY_RU, INTERPRETATION_STATUS_RU, kind_label, method_category,
+                      status_label)
 
 RESULT_COLUMNS = [
     ('Расчёт №', lambda run, r: run['id']),
@@ -25,7 +26,11 @@ RESULT_COLUMNS = [
     ('Газовая CO₂', lambda run, r: _flag(r['inputs'].get('vapor_co2_present'))),
     ('Водный раствор', lambda run, r: _flag(r['inputs'].get('aqueous_brine_present'))),
     ('Чистая CO₂ принята', lambda run, r: _flag(r['inputs'].get('co2_purity_confirmed'))),
-    ('Статус', lambda run, r: STATUS_RU.get(r['status'], r['status'])),
+    ('Пар при растворении галита', lambda run, r: _flag(r['inputs'].get('vapor_present_at_transition'))),
+    ('Фаза определена как гидрогалит', lambda run, r: _flag(r['inputs'].get('phase_identified'))),
+    ('КР-спектроскопия газовой фазы', lambda run, r: r['inputs'].get('raman_species') or ''),
+    ('Вид сведений', lambda run, r: CATEGORY_RU[method_category(r.get('method_key'))]),
+    ('Статус', lambda run, r: status_label(r['status'], r.get('method_key'))),
     ('Результат', lambda run, r: r['result_kind'] or ''),
     ('Значение', lambda run, r: r['value']),
     ('Единицы', lambda run, r: r['unit'] or ''),
@@ -50,6 +55,11 @@ RESULT_COLUMNS = [
     ('Расхождение двух P при Th общ., %', lambda run, r: r['extras'].get('pressure_th_total_difference_pct')),
     ('Изохора (T °C → P бар)', lambda run, r: '; '.join(f'{t:.0f} → {p:.0f}' for t, p in r['extras']['isochore'])
      if r['extras'].get('isochore') else ''),
+    ('Заключение интерпретации', lambda run, r: r['message'] if method_category(r.get('method_key')) ==
+     'interpretation' and r['status'] == 'ok' else ''),
+    ('Условия захвата: T, °C', lambda run, r: _trap_cell(r, 'temperature_c', 'temperature_range_c', 1)),
+    ('Условия захвата: P, бар', lambda run, r: _trap_cell(r, 'pressure_bar', 'pressure_range_bar', 0)),
+    ('Условия захвата: формулировка', lambda run, r: r['extras'].get('wording') or ''),
     ('Значение при T−u', lambda run, r: r['extras'].get('sensitivity_t_minus_u')),
     ('Значение при T+u', lambda run, r: r['extras'].get('sensitivity_t_plus_u')),
     ('Методика', lambda run, r: r['model'] or ''),
@@ -66,6 +76,16 @@ RESULT_COLUMNS = [
     ('Версия ядра', lambda run, r: run['core_version']),
     ('Версия CoolProp', lambda run, r: run['coolprop_version']),
 ]
+
+
+def _trap_cell(r, single, rng, digits):
+    """Значение или диапазон условий захвата для строки результата «Условия захвата»."""
+    ex = r['extras']
+    if not ex.get('constraint'):
+        return None
+    if ex.get(rng):
+        return f'{ex[rng][0]:.{digits}f} … {ex[rng][1]:.{digits}f}'
+    return ex.get(single)
 
 
 def _flag(v):
@@ -115,7 +135,8 @@ def export_results_xlsx(path: str | Path, run: dict, results: list[dict]) -> Pat
     for c in ws[1]:
         c.font = bold
         c.alignment = Alignment(wrap_text=True, vertical='top')
-    fills = {'рассчитано': 'E2F0D9', 'отказ': 'F8D7DA', 'не рассчитывается': 'EDEDED'}
+    fills = {'рассчитано': 'E2F0D9', 'отказ': 'F8D7DA', 'не рассчитывается': 'EDEDED',
+             INTERPRETATION_STATUS_RU: 'DDEBF7'}
     status_col = headers.index('Статус') + 1
     for row in rows:
         ws.append(row)
@@ -204,7 +225,8 @@ def export_observations_csv(path: str | Path, observations: list[dict], *, delim
     headers = ['sample_id', 'mineral', 'fia', 'inclusion_id', 'inclusion_type', 'kind', 'temperature_c',
                'uncertainty_c', 'homogenization_to', 'liquid_co2_present', 'vapor_co2_present',
                'aqueous_brine_present', 'co2_purity_confirmed', 'phase_notes', 'comment', 'carbonic_fraction_pct',
-               'carbonic_fraction_unc_pct', 'carbonic_fraction_method']
+               'carbonic_fraction_unc_pct', 'carbonic_fraction_method', 'vapor_present_at_transition',
+               'phase_identified']
     with path.open('w', encoding='utf-8-sig', newline='') as fh:
         w = csv.writer(fh, delimiter=delimiter)
         w.writerow(headers)
@@ -219,7 +241,8 @@ def export_observations_csv(path: str | Path, observations: list[dict], *, delim
                         o['phase_notes'] or '', o['comment'] or '',
                         '' if o.get('carbonic_fraction') is None else repr(100 * o['carbonic_fraction']),
                         '' if o.get('carbonic_fraction_unc') is None else repr(100 * o['carbonic_fraction_unc']),
-                        o.get('carbonic_fraction_method') or ''])
+                        o.get('carbonic_fraction_method') or '', fl(o.get('vapor_present_at_transition')),
+                        fl(o.get('phase_identified'))])
     return path
 
 
@@ -229,13 +252,33 @@ LAB_HEADERS = ['№ п/п', '№ вкл.', 'Th общ., °C', 'Тип включ
                'ρ CO₂, г/см³', 'φ CO₂, %', 'ρ включения, г/см³', 'Ph при Th (мин.), бар', 'dP/dT изохоры, бар/°C',
                'ρ включения, строгая модель, г/см³', 'X(CO₂), мол. %', 'Солёность валовая, мас. %',
                'P расслоения при Th общ., бар', 'P по изохоре при Th общ., бар', 'Предупреждения модели',
-               'Замечания']
+               'Tm гидрогалита, °C', 'Солёность по гидрогалиту, мас. % NaCl', 'T раств. галита, °C',
+               'Солёность по галиту, мас. % NaCl', 'Te: интерпретация (не состав)', 'Tm CO₂: интерпретация',
+               'Условия захвата при независимом ограничении', 'Замечания']
 _HOMOG_SHORT = {'liquid': 'Ж', 'vapor': 'Г', 'critical': 'крит.'}
 
 
 def _natural_key(s: str):
     import re
     return [int(x) if x.isdigit() else x for x in re.split(r'(\d+)', s or '')]
+
+
+def _first_value(ok_rows, digits):
+    return round(ok_rows[0]['value'], digits) if len(ok_rows) == 1 and ok_rows[0]['value'] is not None else None
+
+
+def _messages(ok_rows):
+    return ' | '.join(r['message'] for r in ok_rows if r['message']) or None
+
+
+def _trap_text(ok_rows):
+    if not ok_rows:
+        return None
+    r = ok_rows[0]
+    t, p = _trap_cell(r, 'temperature_c', 'temperature_range_c', 1), _trap_cell(r, 'pressure_bar',
+                                                                              'pressure_range_bar', 0)
+    fmt = lambda v, d: v if isinstance(v, str) else f'{v:.{d}f}'            # noqa: E731
+    return f'{fmt(t, 1)} °C; {fmt(p, 0)} бар — {r["extras"].get("wording", "")}'
 
 
 def _pvtx_cells(ok_rows: list[dict]) -> list:
@@ -286,7 +329,10 @@ def _lab_rows(results: list[dict], inclusion_types: dict):
             temps('Tm_clath'), temps('Tm_ice'), None if sal is None else round(sal, 2), method, temps('Th_CO2'),
             homog, None if rho_c is None else round(rho_c, 4), None if phi is None else round(100 * phi, 1),
             None if rho_b is None else round(rho_b, 3), None if ph is None else round(ph, 1),
-            None if slope is None else round(slope, 2), *_pvtx_cells(ok('co2_pvtx')), ' | '.join(notes)])
+            None if slope is None else round(slope, 2), *_pvtx_cells(ok('co2_pvtx')),
+            temps('Tm_hydrohalite'), _first_value(ok('Tm_hydrohalite'), 2), temps('T_diss_halite'),
+            _first_value(ok('T_diss_halite'), 2), _messages(ok('Te')), _messages(ok('Tm_CO2')),
+            _trap_text(ok('trapping')), ' | '.join(notes)])
     return samples
 
 
@@ -337,9 +383,16 @@ def export_lab_format_xlsx(path, run: dict, results: list[dict], db: Database | 
             'P расслоения при Th общ. (Mao et al., 2013) и P по изохоре при Th общ. (Duan et al., 1995; ниже 300 °C — '
             'экстраполяция) — два РАЗНЫХ расчёта; они не взаимозаменяемы и НЕ являются давлением захвата. '
             'Предупреждения модели приведены в отдельном столбце.',
+            'Солёность по гидрогалиту — только бинарная система H₂O–NaCl (Steele-MacInnis et al., 2011, предел Ψ = 1) '
+            'и только если фаза определена как гидрогалит; по галиту — Sterner et al. (1988), только если при '
+            'растворении галита присутствует пар. Интерпретации Te и Tm CO₂ — диагностические, состав по ним не '
+            'определяется.',
+            'Условия захвата при независимом ограничении — точка на изохоре при заданной оператором температуре или '
+            'давлении; это не условия минералообразования, если одновременность с ростом минерала не документирована.',
             'Th не является температурой образования без доказательства гетерогенного захвата в пределах FIA.'):
         ws.append([line])
-    widths = [7, 10, 9, 18, 9, 9, 10, 9, 12, 15, 9, 8, 10, 8, 11, 11, 11, 12, 10, 11, 12, 12, 80, 80]
+    widths = [7, 10, 9, 18, 9, 9, 10, 9, 12, 15, 9, 8, 10, 8, 11, 11, 11, 12, 10, 11, 12, 12, 80, 10, 12, 10, 12, 60,
+              60, 60, 80]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[ws.cell(1, i).column_letter].width = w
     wb.save(str(path))

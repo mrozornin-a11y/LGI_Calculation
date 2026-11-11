@@ -1,7 +1,7 @@
 FluidCalc — журнал автоматических проверок
-Дата: 2026-11-10 20:11:53 UTC
+Дата: 2026-11-11 08:47:46 UTC
 Python:     3.13.18 (/usr/local/bin/python3)
-Платформа:  Linux-6.18.44-fc-v338-x86_64-with-glibc2.39
+Платформа:  Linux-6.18.44-fc-v378-x86_64-with-glibc2.39
 glibc:      2.39
 PySide6     6.12.0
 CoolProp    8.0.0
@@ -11,7 +11,7 @@ numpy       2.5.3
 scipy       НЕ ДОСТУПЕН (No module named 'scipy') — не обязателен
 pandas      3.0.5
 Проверка CoolProp: ρ(CO₂, ж, 20 °C) = 0.773387 г/см³, P_sat = 57.2905 бар
-FluidCalc:  0.4.0; ядро fluid_core 0.2
+FluidCalc:  0.5.0; ядро fluid_core 0.2
 
 ================ 1. Программные и регрессионные тесты (tests/) ================
 test_decimal_comma_quoted (test_batch.TestBatch.test_decimal_comma_quoted) ... ok
@@ -50,6 +50,8 @@ test_passport_contains_source_and_limits (test_calc.TestDispatch.test_passport_c
 test_record_only_kinds_skipped (test_calc.TestDispatch.test_record_only_kinds_skipped) ... ok
 test_sensitivity_partial_at_range_edge (test_calc.TestDispatch.test_sensitivity_partial_at_range_edge) ... ok
 test_sensitivity_range (test_calc.TestDispatch.test_sensitivity_range) ... ok
+test_te_and_tm_co2_are_interpreted_not_calculated (test_calc.TestDispatch.test_te_and_tm_co2_are_interpreted_not_calculated)
+Te и Tm CO₂ больше не «только регистрация»: выдаётся диагностическая интерпретация без числа. ... ok
 test_unknown_kind (test_calc.TestDispatch.test_unknown_kind) ... ok
 test_core_errors_are_translated (test_calc.TestTranslations.test_core_errors_are_translated)
 Каждое известное сообщение ядра, возникающее при отказе, имеет русский перевод. ... ok
@@ -136,10 +138,12 @@ test_domain (test_duan1995_mao2013.TestMao2013.test_domain) ... ok
 test_interpolation_between_parameter_sets (test_duan1995_mao2013.TestMao2013.test_interpolation_between_parameter_sets) ... ok
 test_published_values (test_duan1995_mao2013.TestMao2013.test_published_values)
 Mao et al. (2013), табл. 9 (2 моль/кг NaCl): 373,15 K и 623,15 K при 1000 бар; табл. 7: 298,15 K, 100 бар. ... ok
-test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... /usr/local/lib/python3.13/enum.py:696: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f3b95b42890>
+test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... /usr/local/lib/python3.13/enum.py:696: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7fc39d753100>
   def __call__(cls, value, names=_not_given, *values, module=None, qualname=None, type=None, start=1, boundary=None):
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
 ok
+test_new_kinds_input_calculation_save_reopen_export (test_gui.TestMainWindow.test_new_kinds_input_calculation_save_reopen_export)
+Галит, гидрогалит, Te, Tm CO₂ и условия захвата: ввод → расчёт → сохранение → открытие → экспорт. ... ok
 test_observation_dialog (test_gui.TestMainWindow.test_observation_dialog) ... ok
 test_pvtx_input_calculation_save_reopen_export (test_gui.TestMainWindow.test_pvtx_input_calculation_save_reopen_export)
 Строгая модель H₂O–CO₂–NaCl: ввод → расчёт → сохранение → повторное открытие → экспорт. ... ok
@@ -185,6 +189,18 @@ test_ok (test_h2o_nacl.TestDerived.test_ok) ... ok
 test_out_of_range_translated (test_h2o_nacl.TestDerived.test_out_of_range_translated) ... ok
 test_warnings (test_h2o_nacl.TestDerived.test_warnings) ... ok
 test_confirm_liquid_homogenization (test_h2o_nacl.TestLabImportOption.test_confirm_liquid_homogenization) ... ok
+test_coefficients_are_the_published_ones (test_halite.TestHalite.test_coefficients_are_the_published_ones) ... ok
+test_control_values (test_halite.TestHalite.test_control_values) ... ok
+test_domain (test_halite.TestHalite.test_domain) ... ok
+test_no_rounding_and_mole_fraction (test_halite.TestHalite.test_no_rounding_and_mole_fraction) ... ok
+test_requires_vapor (test_halite.TestHalite.test_requires_vapor) ... ok
+test_binary_limit_equals_general_equation_at_psi_1 (test_halite.TestHydrohalite.test_binary_limit_equals_general_equation_at_psi_1) ... ok
+test_coefficients (test_halite.TestHydrohalite.test_coefficients) ... ok
+test_control_values (test_halite.TestHydrohalite.test_control_values) ... ok
+test_molar_masses_are_the_project_constants (test_halite.TestHydrohalite.test_molar_masses_are_the_project_constants) ... ok
+test_multicomponent_blocks_binary_result (test_halite.TestHydrohalite.test_multicomponent_blocks_binary_result) ... ok
+test_no_extrapolation (test_halite.TestHydrohalite.test_no_extrapolation) ... ok
+test_requires_identified_phase (test_halite.TestHydrohalite.test_requires_identified_phase) ... ok
 test_database_dump (test_import_export.TestImportAndExport.test_database_dump) ... ok
 test_export_csv_and_xlsx (test_import_export.TestImportAndExport.test_export_csv_and_xlsx) ... ok
 test_hierarchy_conflict_reported (test_import_export.TestImportAndExport.test_hierarchy_conflict_reported) ... ok
@@ -201,6 +217,24 @@ test_tab_delimiter (test_import_export.TestRead.test_tab_delimiter) ... ok
 test_unicode_minus_utf8 (test_import_export.TestRead.test_unicode_minus_utf8) ... ok
 test_xls_rejected (test_import_export.TestRead.test_xls_rejected) ... ok
 test_xlsx_and_sheets (test_import_export.TestRead.test_xlsx_and_sheets) ... ok
+test_below_minus_55_no_salt_is_assigned (test_interpretation.TestTe.test_below_minus_55_no_salt_is_assigned) ... ok
+test_cacl2_window (test_interpretation.TestTe.test_cacl2_window) ... ok
+test_input_validation (test_interpretation.TestTe.test_input_validation) ... ok
+test_metastable_nacl_note_and_unexplained_low_te (test_interpretation.TestTe.test_metastable_nacl_note_and_unexplained_low_te) ... ok
+test_mg_and_fe_are_returned_together (test_interpretation.TestTe.test_mg_and_fe_are_returned_together) ... ok
+test_nacl_window_and_kcl_overlap (test_interpretation.TestTe.test_nacl_window_and_kcl_overlap) ... ok
+test_never_quantitative (test_interpretation.TestTe.test_never_quantitative) ... ok
+test_recommended_data_excludes_available (test_interpretation.TestTe.test_recommended_data_excludes_available) ... ok
+test_uncertainty_widens_the_match (test_interpretation.TestTe.test_uncertainty_widens_the_match) ... ok
+test_above_reference_is_not_negative_impurity (test_interpretation.TestTmCo2.test_above_reference_is_not_negative_impurity) ... ok
+test_compatible_with_pure_co2 (test_interpretation.TestTmCo2.test_compatible_with_pure_co2) ... ok
+test_depressed (test_interpretation.TestTmCo2.test_depressed) ... ok
+test_input_validation (test_interpretation.TestTmCo2.test_input_validation) ... ok
+test_raman_co2_only_but_depressed (test_interpretation.TestTmCo2.test_raman_co2_only_but_depressed) ... ok
+test_raman_single_second_component (test_interpretation.TestTmCo2.test_raman_single_second_component) ... ok
+test_raman_ternary (test_interpretation.TestTmCo2.test_raman_ternary) ... ok
+test_reference_is_the_project_value (test_interpretation.TestTmCo2.test_reference_is_the_project_value) ... ok
+test_without_uncertainty_no_purity_statement (test_interpretation.TestTmCo2.test_without_uncertainty_no_purity_statement) ... ok
 test_comparison (test_lab_table.TestLabTable.test_comparison) ... ok
 test_comparison_xlsx (test_lab_table.TestLabTable.test_comparison_xlsx) ... ok
 test_import_into_database (test_lab_table.TestLabTable.test_import_into_database) ... ok
@@ -209,6 +243,21 @@ test_parsed_rows_do_not_guess (test_lab_table.TestLabTable.test_parsed_rows_do_n
 test_source_not_modified (test_lab_table.TestLabTable.test_source_not_modified) ... ok
 test_table_interpolation_is_distinguished_from_error (test_lab_table.TestLabTable.test_table_interpolation_is_distinguished_from_error) ... ok
 test_gui_import (test_lab_table.TestLabTableGui.test_gui_import) ... ok
+test_migration_from_v2_keeps_observations_results_and_ids (test_new_kinds_app.TestDatabase.test_migration_from_v2_keeps_observations_results_and_ids) ... ok
+test_new_fields_round_trip_and_validation (test_new_kinds_app.TestDatabase.test_new_fields_round_trip_and_validation) ... ok
+test_save_export_and_import_round_trip (test_new_kinds_app.TestDatabase.test_save_export_and_import_round_trip) ... ok
+test_halite_needs_vapor (test_new_kinds_app.TestHaliteAndHydrohalite.test_halite_needs_vapor) ... ok
+test_hydrohalite_blocked_by_te_or_confirmed_salts (test_new_kinds_app.TestHaliteAndHydrohalite.test_hydrohalite_blocked_by_te_or_confirmed_salts) ... ok
+test_hydrohalite_prerequisites (test_new_kinds_app.TestHaliteAndHydrohalite.test_hydrohalite_prerequisites) ... ok
+test_existing_calculations_untouched (test_new_kinds_app.TestInterpretationsInApp.test_existing_calculations_untouched) ... ok
+test_methods_reference (test_new_kinds_app.TestInterpretationsInApp.test_methods_reference) ... ok
+test_te (test_new_kinds_app.TestInterpretationsInApp.test_te) ... ok
+test_tm_co2_uses_sibling_th_co2_and_raman (test_new_kinds_app.TestInterpretationsInApp.test_tm_co2_uses_sibling_th_co2_and_raman) ... ok
+test_coeval_wording_only_when_documented (test_new_kinds_app.TestTrappingInApp.test_coeval_wording_only_when_documented) ... ok
+test_h2o_co2_nacl (test_new_kinds_app.TestTrappingInApp.test_h2o_co2_nacl) ... ok
+test_h2o_nacl_temperature_and_pressure (test_new_kinds_app.TestTrappingInApp.test_h2o_nacl_temperature_and_pressure) ... ok
+test_no_constraint_no_row (test_new_kinds_app.TestTrappingInApp.test_no_constraint_no_row) ... ok
+test_range_and_failures (test_new_kinds_app.TestTrappingInApp.test_range_and_failures) ... ok
 test_empty_plot (test_plots_offline.TestWorkflowOffline.test_empty_plot) ... ok
 test_full_workflow_without_network (test_plots_offline.TestWorkflowOffline.test_full_workflow_without_network) ... ok
 test_th_salinity_points_use_mean_of_replicates (test_plots_offline.TestWorkflowOffline.test_th_salinity_points_use_mean_of_replicates) ... ok
@@ -232,9 +281,20 @@ test_th_total_not_to_liquid (test_pvtx_app.TestPressures.test_th_total_not_to_li
 test_two_pressures_at_th_total (test_pvtx_app.TestPressures.test_two_pressures_at_th_total) ... ok
 test_core (test_pvtx_app.TestPureWaterExemption.test_core) ... ok
 test_warning_in_application (test_pvtx_app.TestPureWaterExemption.test_warning_in_application) ... ok
+test_ambiguous_intersections_are_not_resolved (test_trapping.TestCompositionIsochore.test_ambiguous_intersections_are_not_resolved) ... ok
+test_forward_calls_existing_core (test_trapping.TestCompositionIsochore.test_forward_calls_existing_core) ... ok
+test_forward_then_inverse_round_trip (test_trapping.TestCompositionIsochore.test_forward_then_inverse_round_trip) ... ok
+test_no_intersection (test_trapping.TestCompositionIsochore.test_no_intersection) ... ok
+test_range_and_limits (test_trapping.TestCompositionIsochore.test_range_and_limits) ... ok
+test_exactly_one_constraint (test_trapping.TestContract.test_exactly_one_constraint) ... ok
+test_wording (test_trapping.TestContract.test_wording) ... ok
+test_forward_equals_existing_isochore (test_trapping.TestLinearIsochore.test_forward_equals_existing_isochore) ... ok
+test_inverse_algebra (test_trapping.TestLinearIsochore.test_inverse_algebra) ... ok
+test_limits_no_extrapolation (test_trapping.TestLinearIsochore.test_limits_no_extrapolation) ... ok
+test_ranges_are_endpoint_values_sorted (test_trapping.TestLinearIsochore.test_ranges_are_endpoint_values_sorted) ... ok
 
 ----------------------------------------------------------------------
-Ran 193 tests in 5.753s
+Ran 251 tests in 5.902s
 
 OK
 
@@ -297,7 +357,7 @@ test_th_total_cases (validation.test_models.TestStage2bPart5.test_th_total_cases
 test_working_isochore_differs_from_author_as_documented (validation.test_models.TestStage2bPart5.test_working_isochore_differs_from_author_as_documented) ... ok
 
 ----------------------------------------------------------------------
-Ran 49 tests in 5.237s
+Ran 49 tests in 3.819s
 
 OK
 
@@ -357,7 +417,7 @@ OK
 
 ================ Сводка ================
 Программные тесты (tests/):
-  passed:  192
+  passed:  250
   failed:  0
   skipped: 0
 Тесты контрольных точек (validation/):

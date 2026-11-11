@@ -47,6 +47,12 @@ class ObservationDialog(QDialog):
         self.vapor = TriStateCombo()
         self.brine = TriStateCombo()
         self.purity = QCheckBox('Принимаю приближение чистой CO₂ (это не доказательство состава)')
+        self.vapor_at = TriStateCombo()        # T раств. галита: пар присутствует при растворении галита
+        self.phase_id = TriStateCombo()        # Tm гидрогалит: фаза определена как гидрогалит
+        self.raman = QComboBox()               # Tm CO₂: что выявила КР-спектроскопия газовой фазы
+        for value, label in ((None, 'не выполнялась / не указана'), ('CO2', 'только CO₂'), ('CO2+CH4', 'CO₂ + CH₄'),
+                             ('CO2+N2', 'CO₂ + N₂'), ('CO2+CH4+N2', 'CO₂ + CH₄ + N₂')):
+            self.raman.addItem(label, value)
         self.phase_notes = QLineEdit()
         self.comment = QLineEdit()
         form.addRow('Тип наблюдения *', self.kind)
@@ -57,6 +63,9 @@ class ObservationDialog(QDialog):
         form.addRow('Газовая CO₂ при плавлении клатрата', self.vapor)
         form.addRow('Водный раствор при плавлении клатрата', self.brine)
         form.addRow('', self.purity)
+        form.addRow('Пар присутствует при растворении галита', self.vapor_at)
+        form.addRow('Фаза определена как гидрогалит', self.phase_id)
+        form.addRow('КР-спектроскопия газовой фазы', self.raman)
         form.addRow('Описание фаз', self.phase_notes)
         form.addRow('Комментарий', self.comment)
         lay.addLayout(form)
@@ -80,6 +89,9 @@ class ObservationDialog(QDialog):
             self.vapor.set_value(obs.get('vapor_co2_present'))
             self.brine.set_value(obs.get('aqueous_brine_present'))
             self.purity.setChecked(obs.get('co2_purity_confirmed') is True)
+            self.vapor_at.set_value(obs.get('vapor_present_at_transition'))
+            self.phase_id.set_value(obs.get('phase_identified'))
+            self.raman.setCurrentIndex(max(0, self.raman.findData(obs.get('raman_species') or None)))
             self.phase_notes.setText(obs.get('phase_notes') or '')
             self.comment.setText(obs.get('comment') or '')
         self._update_enabled()
@@ -91,6 +103,9 @@ class ObservationDialog(QDialog):
         for w in (self.liquid, self.vapor, self.brine):
             w.setEnabled(k == 'Tm_clath')
         self.purity.setEnabled(k in ('Th_CO2', 'Tm_clath'))
+        self.vapor_at.setEnabled(k == 'T_diss_halite')
+        self.phase_id.setEnabled(k == 'Tm_hydrohalite')
+        self.raman.setEnabled(k == 'Tm_CO2')
         self.hint.setText(REQUIREMENTS.get(k) or KIND_NO_CALC_REASON.get(k, ''))
 
     def _accept(self):
@@ -117,6 +132,9 @@ class ObservationDialog(QDialog):
             'aqueous_brine_present': self.brine.value() if k == 'Tm_clath' else None,
             'co2_purity_confirmed': ((True if self.purity.isChecked() else None)
                                      if k in ('Th_CO2', 'Tm_clath') else None),
+            'vapor_present_at_transition': self.vapor_at.value() if k == 'T_diss_halite' else None,
+            'phase_identified': self.phase_id.value() if k == 'Tm_hydrohalite' else None,
+            'raman_species': self.raman.currentData() if k == 'Tm_CO2' else None,
             'phase_notes': self.phase_notes.text().strip() or None,
             'comment': self.comment.text().strip() or None,
             'source': 'ручной ввод',
@@ -389,6 +407,91 @@ class TextDialog(QDialog):
 
 
 PHI_METHODS = ['визуальная оценка', 'подсчёт площадей', 'другое']
+
+
+class InclusionContextDialog(QDialog):
+    """Сведения о включении: состав солей и независимое ограничение условий захвата (задаёт оператор)."""
+
+    def __init__(self, parent, inclusion_label: str, inc):
+        super().__init__(parent)
+        self.setWindowTitle('Состав солей и независимое ограничение')
+        self.setMinimumWidth(620)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel(f'<b>Включение:</b> {inclusion_label}'))
+        form = QFormLayout()
+        self.salts = TriStateCombo()
+        form.addRow('Заметная роль CaCl₂/MgCl₂/FeCl₂ подтверждена', self.salts)
+        self.constraint = QComboBox()
+        for value, label in ((None, 'не задано'), ('temperature', 'температура, °C'), ('pressure', 'давление, бар')):
+            self.constraint.addItem(label, value)
+        self.low = NumberEdit(placeholder='значение или нижняя граница')
+        self.high = NumberEdit(placeholder='верхняя граница (если задаётся диапазон)')
+        self.source = QLineEdit()
+        self.source.setPlaceholderText('чем получена оценка: минеральный термометр, геобарометр, …')
+        self.coeval = QCheckBox('Одновременность захвата включения и роста минерала документирована')
+        self.coeval_note = QLineEdit()
+        self.coeval_note.setPlaceholderText('чем документирована (зона роста, FIA, петрография)')
+        form.addRow('Независимое ограничение', self.constraint)
+        form.addRow('Значение', self.low)
+        form.addRow('Верхняя граница', self.high)
+        form.addRow('Источник оценки', self.source)
+        form.addRow('', self.coeval)
+        form.addRow('Обоснование', self.coeval_note)
+        lay.addLayout(form)
+        hint = QLabel('Независимое ограничение — оценка температуры ИЛИ давления захвата, полученная не из этого '
+                      'включения. Программа находит соответствующую точку на рассчитанной изохоре и называет её '
+                      '«условия захвата включения при независимом ограничении». Формулировка об этапе '
+                      'минералообразования добавляется только при установленном флажке; из Th или типа включения она '
+                      'не выводится. Диапазон — значения на концах интервала, а не доверительный интервал.')
+        hint.setWordWrap(True)
+        hint.setStyleSheet('color:#52514e')
+        lay.addWidget(hint)
+        if inc is not None:
+            v = inc['other_salts_confirmed']
+            self.salts.set_value(None if v is None else bool(v))
+            if inc['trap_temperature_c'] is not None:
+                self.constraint.setCurrentIndex(1)
+                self.low.set_value(inc['trap_temperature_c'])
+                self.high.set_value(inc['trap_temperature_max_c'])
+            elif inc['trap_pressure_bar'] is not None:
+                self.constraint.setCurrentIndex(2)
+                self.low.set_value(inc['trap_pressure_bar'])
+                self.high.set_value(inc['trap_pressure_max_bar'])
+            self.source.setText(inc['trap_constraint_source'] or '')
+            self.coeval.setChecked(bool(inc['coeval_documented']))
+            self.coeval_note.setText(inc['coeval_note'] or '')
+        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Save).setText('Сохранить')
+        bb.button(QDialogButtonBox.Cancel).setText('Отмена')
+        bb.accepted.connect(self._accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        self.result = None
+
+    def _accept(self):
+        kind = self.constraint.currentData()
+        try:
+            lo, hi = self.low.value(), self.high.value()
+            if kind is None and (lo is not None or hi is not None):
+                raise ValueError('выберите, что задано: температура или давление')
+            if kind is not None and lo is None:
+                raise ValueError('не задано значение ограничения')
+            if kind == 'pressure' and any(v is not None and v <= 0 for v in (lo, hi)):
+                raise ValueError('давление должно быть положительным')
+        except ValueError as exc:
+            QMessageBox.warning(self, 'Ошибка ввода', str(exc))
+            return
+        self.result = {
+            'other_salts_confirmed': self.salts.value(),
+            'trap_temperature_c': lo if kind == 'temperature' else None,
+            'trap_temperature_max_c': hi if kind == 'temperature' else None,
+            'trap_pressure_bar': lo if kind == 'pressure' else None,
+            'trap_pressure_max_bar': hi if kind == 'pressure' else None,
+            'trap_constraint_source': self.source.text().strip() or None,
+            'coeval_documented': True if self.coeval.isChecked() else None,
+            'coeval_note': self.coeval_note.text().strip() or None,
+        }
+        self.accept()
 
 
 class CarbonicFractionDialog(QDialog):
