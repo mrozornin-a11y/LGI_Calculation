@@ -15,7 +15,8 @@ from .methods import KINDS
 
 log = logging.getLogger(__name__)
 
-_KIND_CHECK = ', '.join(f"'{k}'" for k in KINDS)
+# Перечень типов наблюдений схемы v1 зафиксирован: новые типы добавляются миграцией, а не правкой v1.
+_KIND_CHECK = ', '.join(f"'{k}'" for k in ('Tm_ice', 'Tm_clath', 'Tm_CO2', 'Th_CO2', 'Th_total', 'Te'))
 
 MIGRATIONS: list[str] = [
     # v1 — исходная схема
@@ -107,12 +108,63 @@ MIGRATIONS: list[str] = [
     ALTER TABLE inclusions ADD COLUMN carbonic_fraction_method TEXT;
     ALTER TABLE inclusions ADD COLUMN carbonic_fraction_temp_c REAL;
     """,
+    # v3 — новые типы наблюдений (Tm гидрогалита, T растворения галита), фазовые условия при переходе, данные
+    # КР-спектроскопии для Tm CO₂; независимое ограничение условий захвата и сведения о составе солей включения.
+    # Таблица наблюдений пересоздаётся: в v1 перечень типов был зашит в CHECK; теперь тип проверяет приложение.
+    # Данные и номера (id) наблюдений сохраняются; миграция выполняется при выключенных внешних ключах.
+    """
+    CREATE TABLE observations_v3(
+        id INTEGER PRIMARY KEY,
+        inclusion_id INTEGER NOT NULL REFERENCES inclusions(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        temperature_c REAL NOT NULL,
+        uncertainty_c REAL CHECK(uncertainty_c IS NULL OR uncertainty_c >= 0),
+        homogenization_to TEXT CHECK(homogenization_to IS NULL OR homogenization_to IN ('liquid','vapor','critical')),
+        liquid_co2_present INTEGER CHECK(liquid_co2_present IS NULL OR liquid_co2_present IN (0,1)),
+        vapor_co2_present INTEGER CHECK(vapor_co2_present IS NULL OR vapor_co2_present IN (0,1)),
+        aqueous_brine_present INTEGER CHECK(aqueous_brine_present IS NULL OR aqueous_brine_present IN (0,1)),
+        co2_purity_confirmed INTEGER CHECK(co2_purity_confirmed IS NULL OR co2_purity_confirmed IN (0,1)),
+        phase_notes TEXT,
+        comment TEXT,
+        source TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        vapor_present_at_transition INTEGER
+            CHECK(vapor_present_at_transition IS NULL OR vapor_present_at_transition IN (0,1)),
+        phase_identified INTEGER CHECK(phase_identified IS NULL OR phase_identified IN (0,1)),
+        raman_species TEXT);
+    INSERT INTO observations_v3(id, inclusion_id, kind, temperature_c, uncertainty_c, homogenization_to,
+        liquid_co2_present, vapor_co2_present, aqueous_brine_present, co2_purity_confirmed, phase_notes, comment,
+        source, created_at, updated_at)
+      SELECT id, inclusion_id, kind, temperature_c, uncertainty_c, homogenization_to, liquid_co2_present,
+        vapor_co2_present, aqueous_brine_present, co2_purity_confirmed, phase_notes, comment, source, created_at,
+        updated_at FROM observations;
+    DROP TABLE observations;
+    ALTER TABLE observations_v3 RENAME TO observations;
+    CREATE INDEX idx_obs_inclusion ON observations(inclusion_id);
+    ALTER TABLE inclusions ADD COLUMN other_salts_confirmed INTEGER
+        CHECK(other_salts_confirmed IS NULL OR other_salts_confirmed IN (0,1));
+    ALTER TABLE inclusions ADD COLUMN trap_temperature_c REAL;
+    ALTER TABLE inclusions ADD COLUMN trap_temperature_max_c REAL;
+    ALTER TABLE inclusions ADD COLUMN trap_pressure_bar REAL;
+    ALTER TABLE inclusions ADD COLUMN trap_pressure_max_bar REAL;
+    ALTER TABLE inclusions ADD COLUMN trap_constraint_source TEXT;
+    ALTER TABLE inclusions ADD COLUMN coeval_documented INTEGER
+        CHECK(coeval_documented IS NULL OR coeval_documented IN (0,1));
+    ALTER TABLE inclusions ADD COLUMN coeval_note TEXT;
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 OBS_FLAG_COLUMNS = ('liquid_co2_present', 'vapor_co2_present', 'aqueous_brine_present', 'co2_purity_confirmed')
+OBS_EXTRA_FLAG_COLUMNS = ('vapor_present_at_transition', 'phase_identified')      # схема v3
+RAMAN_SPECIES_VALUES = ('CO2', 'CO2+CH4', 'CO2+N2', 'CO2+CH4+N2')
+# первые восемь столбцов определяют «то же самое наблюдение» при поиске дубликатов — порядок не менять
 OBS_COLUMNS = ('kind', 'temperature_c', 'uncertainty_c', 'homogenization_to', *OBS_FLAG_COLUMNS,
-               'phase_notes', 'comment', 'source')
+               'phase_notes', 'comment', 'source', *OBS_EXTRA_FLAG_COLUMNS, 'raman_species')
+INCLUSION_CONTEXT_COLUMNS = ('other_salts_confirmed', 'trap_temperature_c', 'trap_temperature_max_c',
+                             'trap_pressure_bar', 'trap_pressure_max_bar', 'trap_constraint_source',
+                             'coeval_documented', 'coeval_note')
 
 
 def now_utc() -> str:
@@ -154,10 +206,20 @@ class Database:
             log.info('Резервная копия перед миграцией: %s', backup)
         for v in range(version, SCHEMA_VERSION):
             log.info('Миграция схемы %s -> %s', v, v + 1)
-            with self.conn:
-                self.conn.executescript('BEGIN;' + MIGRATIONS[v] + f'; PRAGMA user_version = {v + 1};')
-            # executescript завершает транзакцию сам; повторно включаем внешние ключи
-            self.conn.execute('PRAGMA foreign_keys = ON')
+            # пересоздание таблиц допустимо только при выключенных внешних ключах (иначе DROP TABLE обнулит ссылки
+            # результатов на наблюдения); PRAGMA действует только вне транзакции
+            self.conn.commit()
+            self.conn.execute('PRAGMA foreign_keys = OFF')
+            try:
+                with self.conn:
+                    self.conn.executescript('BEGIN;' + MIGRATIONS[v] + f'; PRAGMA user_version = {v + 1};')
+            finally:
+                self.conn.commit()
+                self.conn.execute('PRAGMA foreign_keys = ON')
+            broken = self.conn.execute('PRAGMA foreign_key_check').fetchall()
+            if broken:
+                raise DatabaseError(f'После миграции схемы {v} -> {v + 1} нарушены ссылки между таблицами '
+                                    f'({len(broken)}); используйте резервную копию.')
 
     def close(self) -> None:
         self.conn.close()
@@ -282,6 +344,38 @@ class Database:
                               'carbonic_fraction_method=?, carbonic_fraction_temp_c=? WHERE id=?',
                               (fraction, uncertainty, method or None, temperature_c, inclusion_id))
 
+    def set_inclusion_context(self, inclusion_id: int, **fields) -> None:
+        """Сведения о включении для интерпретации: состав солей и независимое ограничение условий захвата.
+
+        Допустимые поля — INCLUSION_CONTEXT_COLUMNS. Температура и давление: одиночное значение (trap_*_c / _bar)
+        или диапазон (вместе с trap_*_max_*). Задаётся не более одного типа ограничения.
+        """
+        unknown = set(fields) - set(INCLUSION_CONTEXT_COLUMNS)
+        if unknown:
+            raise DatabaseError(f'Неизвестные поля включения: {sorted(unknown)}')
+        row = self.inclusion(inclusion_id)
+        if row is None:
+            raise DatabaseError('Включение не найдено.')
+        new = {k: row[k] for k in INCLUSION_CONTEXT_COLUMNS}
+        new.update(fields)
+        for k in ('other_salts_confirmed', 'coeval_documented'):
+            new[k] = _b2i(new[k])
+        for lo, hi, label in (('trap_temperature_c', 'trap_temperature_max_c', 'температуры'),
+                              ('trap_pressure_bar', 'trap_pressure_max_bar', 'давления')):
+            if new[hi] is not None and new[lo] is None:
+                raise DatabaseError(f'Верхняя граница {label} задана без нижней.')
+        if new['trap_temperature_c'] is not None and new['trap_pressure_bar'] is not None:
+            raise DatabaseError('Независимое ограничение задаётся либо по температуре, либо по давлению, но не '
+                                'по обоим сразу.')
+        if new['trap_pressure_bar'] is not None and new['trap_pressure_bar'] <= 0:
+            raise DatabaseError('Давление должно быть положительным.')
+        for k in ('trap_constraint_source', 'coeval_note'):
+            new[k] = (new[k] or '').strip() or None
+        with self.conn:
+            self.conn.execute(
+                f'UPDATE inclusions SET {", ".join(c + "=?" for c in INCLUSION_CONTEXT_COLUMNS)} WHERE id=?',
+                (*(new[c] for c in INCLUSION_CONTEXT_COLUMNS), inclusion_id))
+
     def inclusions(self, sample_id: int, mineral_id: int | None, fia_id: int | None) -> list[sqlite3.Row]:
         return self._all('SELECT * FROM inclusions WHERE sample_id=? AND mineral_id IS ? AND fia_id IS ? '
                          'ORDER BY name COLLATE NOCASE', (sample_id, mineral_id, fia_id))
@@ -334,7 +428,7 @@ class Database:
         out = []
         for r in rows:
             d = dict(r)
-            for k in OBS_FLAG_COLUMNS:
+            for k in (*OBS_FLAG_COLUMNS, *OBS_EXTRA_FLAG_COLUMNS, 'other_salts_confirmed', 'coeval_documented'):
                 d[k] = _i2b(d[k])
             out.append(d)
         return out
@@ -359,7 +453,8 @@ class Database:
                  len(items), n_ok, n_err, n_skip)).lastrowid
             for obs, o in items:
                 inputs = {k: obs.get(k) for k in ('kind', 'temperature_c', 'uncertainty_c', 'homogenization_to',
-                                                  *OBS_FLAG_COLUMNS, 'phase_notes', 'comment', 'source')}
+                                                  *OBS_FLAG_COLUMNS, 'phase_notes', 'comment', 'source',
+                                                  *OBS_EXTRA_FLAG_COLUMNS, 'raman_species')}
                 inputs.update(obs.get('extra_inputs') or {})       # входы производных расчётов по включению
                 self.conn.execute(
                     'INSERT INTO results(run_id, observation_id, project_name, sample_name, mineral_name, fia_name, '
@@ -415,6 +510,8 @@ class Database:
 _OBS_CONTEXT_SQL = """
 SELECT o.*, i.name AS inclusion_name, i.inclusion_type, i.sample_id, i.mineral_id, i.fia_id,
        i.carbonic_fraction, i.carbonic_fraction_unc, i.carbonic_fraction_method, i.carbonic_fraction_temp_c,
+       i.other_salts_confirmed, i.trap_temperature_c, i.trap_temperature_max_c, i.trap_pressure_bar,
+       i.trap_pressure_max_bar, i.trap_constraint_source, i.coeval_documented, i.coeval_note,
        s.name AS sample_name, s.project_id, p.name AS project_name,
        m.name AS mineral_name, f.name AS fia_name
 FROM observations o
@@ -446,6 +543,10 @@ def _obs_values(obs: dict) -> tuple:
     h = obs.get('homogenization_to') or None
     if h not in (None, 'liquid', 'vapor', 'critical'):
         raise DatabaseError(f'Недопустимое направление гомогенизации: {h!r}')
+    raman = obs.get('raman_species') or None
+    if raman not in (None, *RAMAN_SPECIES_VALUES):
+        raise DatabaseError(f'Недопустимое значение данных КР-спектроскопии: {raman!r}')
     return (kind, float(t), None if u is None else float(u), h,
             *(_b2i(obs.get(k)) for k in OBS_FLAG_COLUMNS),
-            obs.get('phase_notes') or None, obs.get('comment') or None, obs.get('source') or None)
+            obs.get('phase_notes') or None, obs.get('comment') or None, obs.get('source') or None,
+            *(_b2i(obs.get(k)) for k in OBS_EXTRA_FLAG_COLUMNS), raman)

@@ -16,12 +16,17 @@ from fluid_core.co2 import pure_co2_saturation, CRITICAL_POINT_C, DEFAULT_CRITIC
 from fluid_core.salinity import bodnar_1993, darling_1991
 
 from . import __version__ as APP_VERSION
-from .methods import (KIND_METHOD, KIND_NO_CALC_REASON, KINDS, METHODS, KIND_RESULT_LABEL,
-                      FLAG_FIELDS, HOMOGENIZATION, translate_core_message, kind_label, kind_title)
+from .methods import (KIND_METHOD, KIND_NO_CALC_REASON, KINDS, METHODS, KIND_RESULT_LABEL, CATEGORY_RU,
+                      FLAG_FIELDS, HOMOGENIZATION, translate_core_message, kind_label, kind_title,
+                      method_category, status_label)
 
 INPUT_FIELDS = ('kind', 'temperature_c', 'uncertainty_c', 'homogenization_to',
                 'liquid_co2_present', 'vapor_co2_present', 'aqueous_brine_present',
-                'co2_purity_confirmed')
+                'co2_purity_confirmed', 'vapor_present_at_transition', 'phase_identified', 'raman_species')
+EXTRA_FLAG_FIELDS = {'vapor_present_at_transition': 'Пар присутствует при растворении галита',
+                     'phase_identified': 'Плавящаяся фаза определена как гидрогалит'}
+RAMAN_LABELS = {None: 'не выполнялась / не указана', 'CO2': 'только CO₂', 'CO2+CH4': 'CO₂ + CH₄',
+                'CO2+N2': 'CO₂ + N₂', 'CO2+CH4+N2': 'CO₂ + CH₄ + N₂'}
 
 
 class InputError(ValueError):
@@ -110,10 +115,115 @@ def _precheck(method_key: str, obs: dict) -> None:
                              '(CH₄, N₂ и др.) требуется смесевая модель, которая не реализована.')
 
 
-def calculate_observation(obs: dict) -> Outcome:
-    """Рассчитать одно наблюдение. ``obs`` — словарь с полями INPUT_FIELDS.
+def _sensitivity(out: Outcome, fn, t: float, u) -> None:
+    """Значения при T ± u (чувствительность формулы к погрешности температуры)."""
+    if u is None or u <= 0:
+        return
+    lo_hi = []
+    for tt in (t - u, t + u):
+        try:
+            lo_hi.append(fn(tt))
+        except (ValueError, TypeError, ArithmeticError):
+            lo_hi.append(None)
+    out.extras['sensitivity_t_minus_u'], out.extras['sensitivity_t_plus_u'] = lo_hi
+    if None in lo_hi:
+        out.warnings.append(f'При T ± {u:g} °C одна из границ выходит за область применимости — '
+                            'диапазон чувствительности неполный.')
 
-    Логические флаги: True / False / None (не указано).
+
+def _te_outcome(obs, siblings, base, meta) -> Outcome:
+    from fluid_core.interpretation import interpret_te
+    have = {o.get('kind') for o in siblings}
+    r = interpret_te(obs['temperature_c'], obs.get('uncertainty_c'), observations=have)
+    out = Outcome('ok', result_kind=KIND_RESULT_LABEL['te_interpretation'], message=r.summary, **base)
+    out.assumptions, out.scope = ' '.join(meta['assumptions']), meta['range']
+    out.extras.update({'category': 'interpretation', 'interpretation_status': r.status,
+                       'candidates': [{'key': c.key, 'label': c.label, 'window_c': list(c.window_c), 'note': c.note}
+                                      for c in r.candidates],
+                       'indicates_multicomponent': r.indicates_multicomponent,
+                       'quantitative_composition_available': r.quantitative_composition_available,
+                       'recommended_data': list(r.recommended_data), 'limitations': list(r.limitations)})
+    out.warnings.extend(r.warnings)
+    return out
+
+
+def _tm_co2_outcome(obs, siblings, base, meta) -> Outcome:
+    from fluid_core.interpretation import interpret_tm_co2
+    raman = obs.get('raman_species') or None
+    th = [o for o in siblings if o.get('kind') == 'Th_CO2' and o.get('temperature_c') is not None]
+    th_c = th[0]['temperature_c'] if len(th) == 1 else None
+    direction = th[0].get('homogenization_to') if len(th) == 1 else None
+    r = interpret_tm_co2(obs['temperature_c'], obs.get('uncertainty_c'),
+                         raman_species=None if raman is None else raman.split('+'),
+                         th_co2_c=th_c, homogenization_direction=direction)
+    out = Outcome('ok', result_kind=KIND_RESULT_LABEL['tm_co2_interpretation'], message=r.summary, **base)
+    out.assumptions, out.scope = ' '.join(meta['assumptions']), meta['range']
+    out.extras.update({'category': 'interpretation', 'interpretation_status': r.status,
+                       'temperature_status': r.temperature_status, 'difference_c': r.difference_c,
+                       'reference_c': r.reference_c, 'raman_species': raman,
+                       'quantitative_result_available': r.quantitative_result_available, 'notes': list(r.notes)})
+    out.warnings.extend(r.warnings)
+    if len(th) > 1:
+        out.warnings.append('У включения несколько Th CO₂ — для вывода о достаточности данных ни одно не использовано.')
+    return out
+
+
+def _halite_outcome(obs, siblings, base, meta) -> Outcome:
+    from fluid_core import halite
+    t, vapor = float(obs['temperature_c']), obs.get('vapor_present_at_transition')
+    r = halite.halite_dissolution_salinity(t, vapor)
+    if r.status != 'ok':
+        return Outcome('error', message='Количественный результат не выдаётся. ' + r.reason, **base)
+    out = Outcome('ok', value=r.salinity_wt_pct_nacl, unit='мас. % NaCl',
+                  result_kind=KIND_RESULT_LABEL['halite_sterner1988'], **base)
+    out.assumptions, out.scope = ' '.join(meta['assumptions']), meta['range']
+    out.extras.update({'category': 'calculation', 'mole_fraction_nacl': r.mole_fraction_nacl})
+    _sensitivity(out, halite.halite_liquidus_wt_pct, t, obs.get('uncertainty_c'))
+    return out
+
+
+def _hydrohalite_outcome(obs, siblings, base, meta) -> Outcome:
+    from fluid_core import halite
+    from fluid_core.interpretation import interpret_te
+    t = float(obs['temperature_c'])
+    reasons = []
+    if obs.get('other_salts_confirmed') is True:
+        reasons.append('для включения отмечено подтверждение заметной роли CaCl₂/MgCl₂/FeCl₂')
+    for o in siblings:
+        if o.get('kind') == 'Te' and o.get('temperature_c') is not None:
+            te = interpret_te(o['temperature_c'], o.get('uncertainty_c'))
+            if te.indicates_multicomponent:
+                reasons.append(f'Te = {format_value(o["temperature_c"], 1)} °C указывает на возможное присутствие '
+                               'других солей или сложную систему')
+    r = halite.hydrohalite_melting_salinity(t, obs.get('phase_identified'), bool(reasons))
+    if r.status != 'ok':
+        why = r.reason + (' Основание: ' + '; '.join(reasons) + '.' if reasons and obs.get('phase_identified') is True
+                          else '')
+        return Outcome('error', message='Количественный результат не выдаётся. ' + why, **base)
+    out = Outcome('ok', value=r.salinity_wt_pct_nacl, unit='мас. % NaCl',
+                  result_kind=KIND_RESULT_LABEL['hydrohalite_sm2011'], **base)
+    out.assumptions, out.scope = ' '.join(meta['assumptions']), meta['range']
+    out.extras.update({'category': 'calculation', 'mole_fraction_nacl': r.mole_fraction_nacl})
+    if not any(o.get('kind') == 'Te' for o in siblings) and obs.get('other_salts_confirmed') is None:
+        out.warnings.append('Сведений о других солях нет (Te не измерена, отметка о CaCl₂/MgCl₂/FeCl₂ не сделана): '
+                            'результат верен только если раствор — H₂O–NaCl.')
+
+    def wt(tt):
+        x = halite.hydrohalite_liquidus_mole_fraction(tt)
+        return 100 * x * halite.M_NACL / (x * halite.M_NACL + (1 - x) * halite.M_H2O)
+    _sensitivity(out, wt, t, obs.get('uncertainty_c'))
+    return out
+
+
+_OBSERVATION_HANDLERS = {'te_interpretation': _te_outcome, 'tm_co2_interpretation': _tm_co2_outcome,
+                         'halite_sterner1988': _halite_outcome, 'hydrohalite_sm2011': _hydrohalite_outcome}
+
+
+def calculate_observation(obs: dict, siblings: list[dict] | None = None) -> Outcome:
+    """Рассчитать или интерпретировать одно наблюдение. ``obs`` — словарь с полями INPUT_FIELDS.
+
+    Логические флаги: True / False / None (не указано). ``siblings`` — остальные наблюдения того же включения
+    (нужны интерпретациям Tm CO₂ и проверке применимости расчёта по гидрогалиту); по умолчанию — нет.
     """
     kind = obs.get('kind')
     if kind not in KINDS:
@@ -125,6 +235,15 @@ def calculate_observation(obs: dict) -> Outcome:
     base = dict(kind=kind, method_key=method_key, model=meta['title'], doi=meta['doi'],
                 citation=meta['citation'])
     t = obs.get('temperature_c')
+    if method_key in _OBSERVATION_HANDLERS:
+        try:
+            if t is None or (isinstance(t, float) and math.isnan(t)):
+                raise InputError('Температура не указана.')
+            return _OBSERVATION_HANDLERS[method_key](obs, siblings or [], base, meta)
+        except InputError as exc:
+            return Outcome('error', message=str(exc), **base)
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            return Outcome('error', message=str(exc), **base)
     try:
         if t is None or (isinstance(t, float) and math.isnan(t)):
             raise InputError('Температура не указана.')
@@ -216,6 +335,19 @@ def passport_lines(inputs: dict, outcome: dict, run: dict | None = None,
                 rows.append((label, format_value(inputs[key], digits)))
         if inputs.get('homogenization_to'):
             rows.append(('Направление гомогенизации CO₂', HOMOGENIZATION.get(inputs['homogenization_to'], '')))
+    elif kind == 'trapping':
+        rows.append(('Результат по включению', f'{kind_label(kind)} — {kind_title(kind)}'))
+        t_lo, t_hi, p_lo, p_hi = (inputs.get(k) for k in TRAP_FIELDS[:4])
+        if t_lo is not None:
+            rows.append(('Независимое ограничение: температура, °C', format_value(t_lo, 1)
+                         + ('' if t_hi is None else f' … {format_value(t_hi, 1)}')))
+        if p_lo is not None:
+            rows.append(('Независимое ограничение: давление, бар', format_value(p_lo, 0)
+                         + ('' if p_hi is None else f' … {format_value(p_hi, 0)}')))
+        rows.append(('Источник независимой оценки', inputs.get('trap_constraint_source') or 'не указан'))
+        rows.append(('Одновременность с ростом минерала документирована', _flag_text(inputs.get('coeval_documented'))))
+        if inputs.get('coeval_note'):
+            rows.append(('Обоснование одновременности', inputs['coeval_note']))
     elif kind == 'co2_pvtx':
         rows.append(('Результат по включению', f'{kind_label(kind)} — {kind_title(kind)}'))
         mode = inputs.get('mode')
@@ -255,16 +387,64 @@ def passport_lines(inputs: dict, outcome: dict, run: dict | None = None,
             rows.append((FLAG_FIELDS[key], _flag_text(inputs.get(key))))
     if kind == 'Th_CO2':
         rows.append((FLAG_FIELDS['co2_purity_confirmed'], _flag_text(inputs.get('co2_purity_confirmed'))))
+    if kind == 'T_diss_halite':
+        rows.append((EXTRA_FLAG_FIELDS['vapor_present_at_transition'],
+                     _flag_text(inputs.get('vapor_present_at_transition'))))
+    if kind == 'Tm_hydrohalite':
+        rows.append((EXTRA_FLAG_FIELDS['phase_identified'], _flag_text(inputs.get('phase_identified'))))
+    if kind == 'Tm_CO2':
+        rows.append(('КР-спектроскопия газовой фазы', RAMAN_LABELS.get(inputs.get('raman_species') or None, '')))
     status = outcome.get('status')
-    rows.append(('Статус', {'ok': 'рассчитано', 'error': 'расчёт заблокирован / ошибка',
-                            'skipped': 'расчёт не выполняется'}.get(status, status)))
+    category = method_category(outcome.get('method_key'))
+    rows.append(('Вид сведений', {'observation': 'НАБЛЮДЕНИЕ (расчёт и интерпретация не выполняются)',
+                                  'calculation': 'РАСЧЁТ (количественный результат)',
+                                  'interpretation': 'ИНТЕРПРЕТАЦИЯ (диагностика, не количественный расчёт)'}[category]))
+    if status == 'ok' and category == 'interpretation':
+        rows.append(('Статус', 'интерпретация выполнена; количественного результата нет'))
+    else:
+        rows.append(('Статус', {'ok': 'рассчитано', 'error': 'количественный результат не выдаётся — недостаточно '
+                                                             'данных или нарушено условие применимости',
+                                'skipped': 'расчёт не выполняется'}.get(status, status)))
     if outcome.get('message'):
         rows.append(('Причина' if status != 'ok' else 'Примечание', outcome['message']))
     if outcome.get('message_original'):
         rows.append(('Сообщение ядра (исходное)', outcome['message_original']))
-    if status == 'ok':
-        rows.append(('Результат', f'{outcome.get("result_kind")}: {format_value(outcome.get("value"), 5)} {outcome.get("unit")}'))
+    if status == 'ok' and category == 'interpretation':
         ex = outcome.get('extras') or {}
+        rows.append(('Заключение', outcome.get('result_kind') or ''))
+        for c in ex.get('candidates') or []:
+            rows.append(('Кандидат', f'{c["label"]} — окно {format_value(c["window_c"][0], 1)}…'
+                                     f'{format_value(c["window_c"][1], 1)} °C. {c["note"]}'))
+        if 'difference_c' in ex:
+            rows.append(('Tm CO₂ − тройная точка чистой CO₂, °C', f'{format_value(ex["difference_c"], 2)} '
+                         f'(тройная точка {format_value(ex["reference_c"], 3)} °C)'))
+        for n in ex.get('notes') or []:
+            rows.append(('Замечание', n))
+        if ex.get('recommended_data'):
+            rows.append(('Рекомендуемые дополнительные данные', '; '.join(ex['recommended_data'])))
+        rows.append(('Количественный результат', 'не выдаётся'))
+    elif status == 'ok':
+        ex = outcome.get('extras') or {}
+        if outcome.get('value') is None:
+            rows.append(('Результат', outcome.get('result_kind') or ''))
+        else:
+            rows.append(('Результат', f'{outcome.get("result_kind")}: {format_value(outcome.get("value"), 5)} '
+                                      f'{outcome.get("unit")}'))
+        if ex.get('constraint'):
+            if ex.get('temperature_c') is not None and ex.get('pressure_bar') is not None:
+                rows.append(('Точка на изохоре', f'{format_value(ex["temperature_c"], 1)} °C; '
+                                                 f'{format_value(ex["pressure_bar"], 0)} бар'))
+            if ex.get('temperature_range_c') and ex.get('pressure_range_bar'):
+                rows.append(('Отрезок изохоры', f'{format_value(ex["temperature_range_c"][0], 1)}…'
+                             f'{format_value(ex["temperature_range_c"][1], 1)} °C; '
+                             f'{format_value(ex["pressure_range_bar"][0], 0)}…'
+                             f'{format_value(ex["pressure_range_bar"][1], 0)} бар (значения на концах интервала, не '
+                             'доверительный интервал)'))
+            rows.append(('Изохора', f'{ex.get("isochore_system")}: {ex.get("isochore_method")} (из результата '
+                                    f'«{ex.get("isochore_from")}»)'))
+            rows.append(('Формулировка результата', ex.get('wording', '')))
+        if ex.get('mole_fraction_nacl') is not None:
+            rows.append(('Мольная доля NaCl', format_value(ex['mole_fraction_nacl'], 5)))
         if 'saturation_pressure_bar' in ex:
             rows.append(('Давление насыщения CO₂ P_sat, бар', format_value(ex['saturation_pressure_bar'], 4)))
             rows.append(('Мольный объём CO₂, см³/моль', format_value(ex['molar_volume_cm3_mol'], 4)))
@@ -766,6 +946,93 @@ def _pvtx_outcome(group: list[tuple[dict, Outcome]]) -> tuple[dict, Outcome] | N
     return pseudo, out
 
 
+TRAP_FIELDS = ('trap_temperature_c', 'trap_temperature_max_c', 'trap_pressure_bar', 'trap_pressure_max_bar',
+               'trap_constraint_source', 'coeval_documented', 'coeval_note')
+
+
+def _trapping_outcome(group, derived) -> tuple[dict, Outcome] | None:
+    """Условия захвата включения при независимом ограничении, заданном оператором (точка на готовой изохоре)."""
+    from fluid_core import trapping
+    obs0 = group[0][0]
+    t_lo, t_hi, p_lo, p_hi = (obs0.get(k) for k in TRAP_FIELDS[:4])
+    if t_lo is None and p_lo is None:
+        return None                                   # независимое ограничение не задано — результата нет
+    ctx = {k: obs0.get(k) for k in ('project_name', 'sample_name', 'mineral_name', 'fia_name', 'inclusion_name',
+                                    'project_id', 'inclusion_id')}
+    pseudo = dict(ctx, id=None, kind='trapping', temperature_c=None, uncertainty_c=None, homogenization_to=None,
+                  source='производный расчёт по включению',
+                  extra_inputs={k: obs0.get(k) for k in TRAP_FIELDS})
+    meta = METHODS['trapping_constraint']
+    base = dict(kind='trapping', method_key='trapping_constraint', model=meta['title'], doi=meta['doi'],
+                citation=meta['citation'])
+
+    def fail(msg):
+        return pseudo, Outcome('error', message=msg, **base)
+
+    if t_lo is not None and p_lo is not None:
+        return fail('Задано и температурное, и барическое ограничение: допускается ровно одно независимое ограничение.')
+    aq = [o for _, o in derived if o.kind == 'aq_pvt' and o.status == 'ok']
+    co2 = [o for _, o in derived if o.kind == 'co2_pvtx' and o.status == 'ok']
+    if aq:
+        th = next(ob for ob, o in derived if o.kind == 'aq_pvt')['extra_inputs']['Th_total']
+        iso = trapping.LinearIsochore(th, aq[0].extras['Ph_bar'], aq[0].extras['dPdT_bar_per_C'])
+        source_result = 'ρ, Ph H₂O–NaCl'
+    elif co2:
+        ex = co2[0].extras
+        iso = trapping.CompositionIsochore(ex['molar_volume_cm3_mol'], ex['x_h2o'], ex['x_nacl'], ex['x_co2'])
+        source_result = 'Состав, ρ H₂O–CO₂–NaCl'
+    else:
+        return fail('Независимое ограничение задано, но изохора включения не рассчитана: сначала должен быть получен '
+                    'результат «ρ, Ph H₂O–NaCl» или «Состав, ρ H₂O–CO₂–NaCl» (см. причины отказа в этих строках).')
+    coeval = obs0.get('coeval_documented') is True
+    kw = {}
+    if t_lo is not None:
+        kw = ({'independent_temperature': t_lo} if t_hi is None else {'temperature_range': (t_lo, t_hi)})
+    else:
+        kw = ({'independent_pressure': p_lo} if p_hi is None else {'pressure_range': (p_lo, p_hi)})
+    try:
+        r = trapping.solve_trapping_constraint(iso, coeval_with_mineral_growth_documented=coeval, **kw)
+    except (ValueError, TypeError, ArithmeticError) as exc:
+        return fail(str(exc))
+    if r.status != 'ok':
+        return fail({'no_valid_intersection': 'Допустимого пересечения нет. ',
+                     'ambiguous_intersections': 'Пересечение неоднозначно. ',
+                     'out_of_range': 'Вне области применимости изохоры. '}.get(r.status, '') + r.message)
+    if r.constraint == 'temperature':
+        value, unit, kind_text = r.pressure_bar, 'бар', 'давление при заданной температуре'
+    elif r.constraint == 'pressure':
+        value, unit, kind_text = r.temperature_c, '°C', 'температура при заданном давлении'
+    elif r.constraint == 'temperature_range':
+        value, unit, kind_text = None, 'бар', 'диапазон давления при заданном диапазоне температур'
+    else:
+        value, unit, kind_text = None, '°C', 'диапазон температуры при заданном диапазоне давлений'
+    out = Outcome('ok', value=value, unit=unit,
+                  result_kind=f'{KIND_RESULT_LABEL["trapping_constraint"]}: {kind_text}', **base)
+    out.assumptions, out.scope = ' '.join(meta['assumptions']), meta['range']
+    out.extras.update({'category': 'calculation', 'constraint': r.constraint, 'temperature_c': r.temperature_c,
+                       'pressure_bar': r.pressure_bar,
+                       'temperature_range_c': None if r.temperature_range_c is None else list(r.temperature_range_c),
+                       'pressure_range_bar': None if r.pressure_range_bar is None else list(r.pressure_range_bar),
+                       'isochore_system': r.system, 'isochore_method': r.method, 'isochore_from': source_result,
+                       'wording': r.interpretation, 'coeval_documented': coeval})
+    out.message = r.interpretation[0].upper() + r.interpretation[1:] + '.'
+    out.warnings.extend(r.notes)
+    if not (obs0.get('trap_constraint_source') or '').strip():
+        out.warnings.append('Источник независимой оценки не указан: результат нельзя проверить без сведений о том, '
+                            'как получено ограничение.')
+    if coeval:
+        note = (obs0.get('coeval_note') or '').strip()
+        out.warnings.append('Одновременность захвата включения и роста минерала отмечена оператором как '
+                            'документированная' + (f' ({note})' if note else ' (обоснование не записано)')
+                            + '; трактовка как условия этапа минералообразования — на ответственности оператора.')
+    else:
+        out.warnings.append('Это условия захвата включения, а не давление или температура минералообразования: '
+                            'одновременность захвата и роста минерала не документирована.')
+    out.warnings.append('Результат полностью зависит от заданного независимого ограничения и от рассчитанной изохоры; '
+                        'Th сама по себе не является температурой захвата или образования.')
+    return pseudo, out
+
+
 def derive_inclusion_results(items: list[tuple[dict, Outcome]]) -> list[tuple[dict, Outcome]]:
     """Производные результаты по включениям на основе уже рассчитанных наблюдений того же расчёта."""
     groups: dict = {}
@@ -775,13 +1042,23 @@ def derive_inclusion_results(items: list[tuple[dict, Outcome]]) -> list[tuple[di
             groups.setdefault(key, []).append((obs, out))
     derived = []
     for group in groups.values():
+        own = []
         for fn in (_bulk_density_outcome, _pvtx_outcome, _aqueous_outcome):
             r = fn(group)
             if r is not None:
-                derived.append(r)
+                own.append(r)
+        r = _trapping_outcome(group, own)
+        if r is not None:
+            own.append(r)
+        derived.extend(own)
     return derived
 
 
 def calculate_all(observations: list[dict]) -> list[tuple[dict, Outcome]]:
-    items = [(o, calculate_observation(o)) for o in observations]
+    by_inclusion: dict = {}
+    for o in observations:
+        if o.get('inclusion_id') is not None:
+            by_inclusion.setdefault(o['inclusion_id'], []).append(o)
+    items = [(o, calculate_observation(o, [x for x in by_inclusion.get(o.get('inclusion_id'), []) if x is not o]))
+             for o in observations]
     return items + derive_inclusion_results(items)

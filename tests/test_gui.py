@@ -159,6 +159,100 @@ class TestMainWindow(unittest.TestCase):
         self.assertAlmostEqual(data[header.index('ρ включения, строгая модель, г/см³')], 0.9399, delta=1e-4)
         self.assertIn('не взаимозаменяемы', data[header.index('Предупреждения модели')])
 
+    def test_new_kinds_input_calculation_save_reopen_export(self):
+        """Галит, гидрогалит, Te, Tm CO₂ и условия захвата: ввод → расчёт → сохранение → открытие → экспорт."""
+        from openpyxl import load_workbook
+        from fluid_app import exporter
+        from fluid_app.gui.dialogs import InclusionContextDialog, ObservationDialog
+        from fluid_app.gui.main_window import MainWindow, ROLE
+        w = self.w
+        pid = w.db.add_project('Проект')
+        sid = w.db.add_sample(pid, 'Бр-7')
+        iid = w.db.add_inclusion(sid, '2-1')
+        for kind, t, setup in (
+                ('Te', '-21,4', lambda d: d.uncertainty.setText('0,3')),
+                ('Tm_ice', '-5,0', lambda d: None),
+                ('Tm_hydrohalite', '-10,0', lambda d: d.phase_id.set_value(True)),
+                ('T_diss_halite', '300', lambda d: d.vapor_at.set_value(True)),
+                ('Tm_CO2', '-57,5', lambda d: (d.uncertainty.setText('0,2'),
+                                               d.raman.setCurrentIndex(d.raman.findData('CO2+CH4')))),
+                ('Th_total', '250', lambda d: d.homog.set_value('liquid'))):
+            dlg = ObservationDialog(w, '2-1')
+            dlg.kind.setCurrentIndex(dlg.kind.findData(kind))
+            self.assertGreaterEqual(dlg.kind.currentIndex(), 0, kind)
+            dlg.temperature.setText(t)
+            # поля условий перехода доступны только для своего типа наблюдения
+            self.assertEqual(dlg.vapor_at.isEnabled(), kind == 'T_diss_halite')
+            self.assertEqual(dlg.phase_id.isEnabled(), kind == 'Tm_hydrohalite')
+            self.assertEqual(dlg.raman.isEnabled(), kind == 'Tm_CO2')
+            setup(dlg)
+            dlg._accept()
+            self.assertIsNotNone(dlg.result, kind)
+            if kind != 'Tm_CO2':                      # Tm CO₂ кладём в отдельное включение (иначе это CO₂-включение)
+                w.db.add_observation(iid, dlg.result)
+            else:
+                w.db.add_observation(w.db.add_inclusion(sid, '2-2'), dlg.result)
+        ctx = InclusionContextDialog(w, '2-1', w.db.inclusion(iid))
+        ctx.constraint.setCurrentIndex(ctx.constraint.findData('temperature'))
+        ctx.low.setText('400')
+        ctx.source.setText('хлоритовый геотермометр')
+        ctx._accept()
+        self.assertIsNone(ctx.result['coeval_documented'])
+        w.db.set_inclusion_context(iid, **ctx.result)
+        # диалог повторно открывается с сохранёнными значениями
+        again = InclusionContextDialog(w, '2-1', w.db.inclusion(iid))
+        self.assertEqual(again.constraint.currentData(), 'temperature')
+        self.assertEqual(again.low.value(), 400.0)
+        w.refresh_all()
+        self.assertEqual(w.obs_table.columnCount(), len(w.obs_cols))
+        w.calculate(selected_only=False)
+        w.wait_for_calculation()
+        by = {}
+        for r in w._results:
+            by.setdefault(r['kind'], r)
+        self.assertAlmostEqual(by['T_diss_halite']['value'], 38.1628264, delta=1e-9)
+        self.assertAlmostEqual(by['Tm_hydrohalite']['value'], 25.125138134358654, delta=1e-9)
+        self.assertEqual(by['Te']['status'], 'ok')
+        self.assertIsNone(by['Te']['value'])
+        self.assertEqual(by['Tm_CO2']['extras']['interpretation_status'], 'volatile_impurity_suspected')
+        self.assertEqual(by['trapping']['status'], 'ok', by['trapping']['message'])
+        # в таблице результатов интерпретация не названа «рассчитано»
+        labels = {}
+        for i in range(w.res_table.rowCount()):
+            r = w._results[w.res_table.item(i, 0).data(ROLE)]
+            labels[r['kind']] = w.res_table.item(i, 6).text()
+        self.assertEqual(labels['Te'], 'интерпретация (не расчёт)')
+        self.assertEqual(labels['Tm_CO2'], 'интерпретация (не расчёт)')
+        self.assertEqual(labels['T_diss_halite'], 'рассчитано')
+        self.assertEqual(labels['Th_total'], 'не рассчитывается')
+        row = next(i for i in range(w.res_table.rowCount())
+                   if w._results[w.res_table.item(i, 0).data(ROLE)]['kind'] == 'trapping')
+        w.res_table.selectRow(row)
+        text = w.passport.toPlainText()
+        self.assertIn('условия захвата включения при независимом ограничении', text)
+        self.assertIn('не давление или температура минералообразования', text)
+        # расширенная формулировка в самом результате отсутствует (она упомянута только в правилах методики)
+        self.assertEqual(by['trapping']['extras']['wording'], 'условия захвата включения при независимом ограничении')
+        self.assertIn('Формулировка результата\nусловия захвата включения при независимом ограничении\n', text)
+        run_id = w._run['id']
+        trap_value = by['trapping']['value']
+        w.close()
+        w2 = MainWindow(str(self.dbpath))
+        try:
+            res = w2.db.results(run_id)
+            self.assertEqual(next(r for r in res if r['kind'] == 'trapping')['value'], trap_value)
+            self.assertIs(next(o for o in w2.db.observations() if o['kind'] == 'T_diss_halite')
+                          ['vapor_present_at_transition'], True)
+            x = exporter.export_results_xlsx(Path(self.tmp.name) / 'n.xlsx', w2.db.run(run_id), res)
+        finally:
+            w2.close()
+        ws = load_workbook(x)['Результаты']
+        head = [c.value for c in ws[1]]
+        statuses = {r[head.index('Тип наблюдения')]: r[head.index('Статус')]
+                    for r in ws.iter_rows(min_row=2, values_only=True)}
+        self.assertEqual(statuses['Te'], 'интерпретация (не расчёт)')
+        self.assertEqual(statuses['Условия захвата'], 'рассчитано')
+
     def test_quick_calc(self):
         w = self.w
         w.q_kind.setCurrentIndex(w.q_kind.findData('Tm_ice'))

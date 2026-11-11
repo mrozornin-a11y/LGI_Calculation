@@ -17,7 +17,8 @@ from ..calc import (Outcome, backend_versions, calculate_observation, derive_inc
 from ..db import Database, DatabaseError
 from ..exporter import (export_database_xlsx, export_lab_format_xlsx, export_observations_csv, export_results_csv,
                         export_results_xlsx)
-from ..methods import (HOMOGENIZATION, KINDS, METHODS, STATUS_RU, kind_label, methods_html)
+from ..methods import (HOMOGENIZATION, KINDS, METHODS, STATUS_RU, kind_label, method_category, methods_html,
+                       status_label)
 from ..paths import default_db_path, log_file_path, project_root
 from ..plots import GROUP_BY, PLOT_TYPES, make_figure, save_figure
 from .dialogs import ImportDialog, ObservationDialog, TextDialog
@@ -27,6 +28,19 @@ log = logging.getLogger(__name__)
 
 ROLE = Qt.UserRole
 STATUS_BG = {'ok': '#e2f0d9', 'error': '#f8d7da', 'skipped': '#ededed'}
+INTERPRETATION_BG = '#ddebf7'      # интерпретация — не расчёт: отдельный цвет
+RAMAN_SHORT = {'CO2': 'КР: CO₂', 'CO2+CH4': 'КР: CO₂+CH₄', 'CO2+N2': 'КР: CO₂+N₂', 'CO2+CH4+N2': 'КР: CO₂+CH₄+N₂'}
+
+
+def _transition_text(o) -> str:
+    """Условия перехода, записанные наблюдателем для новых типов наблюдений."""
+    if o['kind'] == 'T_diss_halite':
+        return 'пар: ' + _flag_text(o.get('vapor_present_at_transition'))
+    if o['kind'] == 'Tm_hydrohalite':
+        return 'гидрогалит определён: ' + _flag_text(o.get('phase_identified'))
+    if o['kind'] == 'Tm_CO2':
+        return RAMAN_SHORT.get(o.get('raman_species') or '', '')
+    return ''
 
 
 class CalcWorker(QObject):
@@ -194,8 +208,8 @@ class MainWindow(QMainWindow):
         self.obs_caption = QLabel()
         lay.addWidget(self.obs_caption)
         self.obs_cols = ['ID', 'Образец', 'Минерал', 'FIA', 'Включение', 'Тип', 'T, °C', '±, °C',
-                         'Гомогенизация', 'Жидк. CO₂', 'Газ. CO₂', 'Раствор', 'Чистая CO₂', 'Фазы',
-                         'Комментарий', 'Источник']
+                         'Гомогенизация', 'Жидк. CO₂', 'Газ. CO₂', 'Раствор', 'Чистая CO₂', 'Условия перехода',
+                         'Фазы', 'Комментарий', 'Источник']
         self.obs_table = QTableWidget(0, len(self.obs_cols))
         self.obs_table.setHorizontalHeaderLabels(self.obs_cols)
         self.obs_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -516,6 +530,7 @@ class MainWindow(QMainWindow):
             if lvl == 'inclusion':
                 menu.addAction('Добавить наблюдение…', self.add_observation)
                 menu.addAction('Доля углекислотной фазы…', self.edit_carbonic_fraction)
+                menu.addAction('Состав солей и независимое ограничение…', self.edit_inclusion_context)
             menu.addSeparator()
             menu.addAction('Рассчитать выбранное', lambda: self.calculate(True))
             if lvl != 'mineral_none':
@@ -596,6 +611,17 @@ class MainWindow(QMainWindow):
             self._guard(self.db.set_carbonic_fraction, n['id'], *dlg.result)
             self.refresh_tree()
 
+    def edit_inclusion_context(self):
+        from .dialogs import InclusionContextDialog
+        n = self.selected_node()
+        if not n or n['level'] != 'inclusion':
+            QMessageBox.information(self, 'Состав солей и независимое ограничение', 'Выберите включение в дереве.')
+            return
+        dlg = InclusionContextDialog(self, self._inclusion_label(n['id']), self.db.inclusion(n['id']))
+        if dlg.exec() and dlg.result is not None:
+            self._guard(lambda: self.db.set_inclusion_context(n['id'], **dlg.result))
+            self.refresh_tree()
+
     _TABLES = {'project': 'projects', 'sample': 'samples', 'mineral': 'minerals', 'fia': 'fias',
                'inclusion': 'inclusions'}
 
@@ -637,7 +663,7 @@ class MainWindow(QMainWindow):
                     kind_label(o['kind']), None, None, HOMOGENIZATION.get(o['homogenization_to'], ''),
                     _flag_text(o['liquid_co2_present']), _flag_text(o['vapor_co2_present']),
                     _flag_text(o['aqueous_brine_present']), _flag_text(o['co2_purity_confirmed']),
-                    o['phase_notes'] or '', o['comment'] or '', o['source'] or '']
+                    _transition_text(o), o['phase_notes'] or '', o['comment'] or '', o['source'] or '']
             for c, v in enumerate(vals):
                 if c == 0:
                     it = QTableWidgetItem()
@@ -652,7 +678,7 @@ class MainWindow(QMainWindow):
                 t.setItem(r, c, it)
         t.setSortingEnabled(True)
         t.resizeColumnsToContents()
-        for c in (13, 14, 15):
+        for c in (14, 15, 16):
             t.setColumnWidth(c, min(t.columnWidth(c), 220))
 
     def _selected_obs_ids(self) -> list[int]:
@@ -969,7 +995,8 @@ class MainWindow(QMainWindow):
         for row, r in enumerate(shown):
             idx = self._results.index(r)
             vals = [r['sample_name'], r['mineral_name'] or '', r['fia_name'] or '', r['inclusion_name'],
-                    kind_label(r['kind']), None, STATUS_RU.get(r['status'], r['status']), r['result_kind'] or '',
+                    kind_label(r['kind']), None, status_label(r['status'], r.get('method_key')),
+                    r['result_kind'] or '',
                     None, r['unit'] or '', None, r['model'] or '', r['message'] or '']
             for c, v in enumerate(vals):
                 if c == 5:
@@ -981,7 +1008,8 @@ class MainWindow(QMainWindow):
                 else:
                     it = QTableWidgetItem(v)
                 if c == 6:
-                    it.setBackground(QColor(STATUS_BG.get(r['status'], '#ffffff')))
+                    interp = r['status'] == 'ok' and method_category(r.get('method_key')) == 'interpretation'
+                    it.setBackground(QColor(INTERPRETATION_BG if interp else STATUS_BG.get(r['status'], '#ffffff')))
                 it.setData(ROLE, idx)
                 t.setItem(row, c, it)
         t.setSortingEnabled(True)
@@ -1044,7 +1072,9 @@ class MainWindow(QMainWindow):
                'liquid_co2_present': self.q_l.value() if k == 'Tm_clath' else None,
                'vapor_co2_present': self.q_v.value() if k == 'Tm_clath' else None,
                'aqueous_brine_present': self.q_b.value() if k == 'Tm_clath' else None,
-               'co2_purity_confirmed': (True if self.q_p.isChecked() else None) if k == 'Th_CO2' else None}
+               'co2_purity_confirmed': (True if self.q_p.isChecked() else None) if k == 'Th_CO2' else None,
+               # фазовые условия для галита и гидрогалита в быстром расчёте не задаются — они останутся «не указано»
+               'vapor_present_at_transition': None, 'phase_identified': None, 'raman_species': None}
         o = calculate_observation(obs)
         self.q_out.setHtml(passport_html(passport_lines(obs, o.__dict__), 'Быстрый расчёт (не сохраняется)'))
 

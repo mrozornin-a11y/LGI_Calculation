@@ -42,12 +42,20 @@ TARGET_FIELDS: dict[str, tuple[str, tuple[str, ...]]] = {
     'Th_total': ('Th общ., °C', ('th_total', 'th_tot', 'thtot', 'th', 'th total', 'th общ', 'тгом')),
     'Th_total_mode': ('Th общ.: направление', ('th_total_mode', 'th_total_to', 'th mode', 'гомогенизация')),
     'Te': ('Te, °C', ('te', 't_e', 'teut', 'эвтектика', 'te, °c')),
+    'Tm_hydrohalite': ('Tm гидрогалит, °C', ('tm_hydrohalite', 'tm_hh', 'tm hh', 'tm гидрогалит', 'tm гидрогалита',
+                                               'тпл гидрогалита')),
+    'T_diss_halite': ('T раств. галита, °C', ('t_diss_halite', 'tm_halite', 'ts_halite', 'ts nacl', 'tm halite',
+                                               't раств. галита', 'т раств галита', 'растворение галита')),
     'uncertainty': ('Погрешность ±, °C', ('uncertainty_c', 'uncertainty', 'error', 'погрешность', '±')),
     'liquid_co2_present': ('Жидкая CO₂ присутствует', ('liquid_co2_present', 'l_co2', 'жидкая co2')),
     'vapor_co2_present': ('Газовая CO₂ присутствует', ('vapor_co2_present', 'v_co2', 'газовая co2')),
     'aqueous_brine_present': ('Водный раствор присутствует', ('aqueous_brine_present', 'brine', 'водный раствор')),
     'co2_purity_confirmed': ('Приближение чистой CO₂ принято', ('co2_purity_confirmed', 'pure_co2',
                                                                  'чистая co2')),
+    'vapor_present_at_transition': ('Пар присутствует при растворении галита',
+                                    ('vapor_present_at_transition', 'vapor_at_halite', 'пар при растворении галита')),
+    'phase_identified': ('Фаза определена как гидрогалит', ('phase_identified', 'hydrohalite_identified',
+                                                              'гидрогалит определён', 'гидрогалит определен')),
     'carbonic_fraction': ('Доля углекислотной фазы φ, %', ('carbonic_fraction_pct', 'carbonic_fraction', 'phi_co2',
                                                          'φ', 'phi', 'доля co2', 'доля углекислоты',
                                                          'доля углекислотной фазы')),
@@ -58,13 +66,16 @@ TARGET_FIELDS: dict[str, tuple[str, tuple[str, ...]]] = {
     'phase_notes': ('Описание фаз', ('phase_notes', 'phases', 'фазы', 'фазовый состав', 'описание фаз')),
     'comment': ('Комментарий', ('comment', 'comments', 'note', 'notes', 'комментарий', 'примечание')),
 }
-WIDE_KINDS = ('Tm_ice', 'Tm_clath', 'Tm_CO2', 'Th_CO2', 'Th_total', 'Te')
-FLAG_KEYS = ('liquid_co2_present', 'vapor_co2_present', 'aqueous_brine_present', 'co2_purity_confirmed')
+WIDE_KINDS = ('Tm_ice', 'Tm_clath', 'Tm_CO2', 'Th_CO2', 'Th_total', 'Te', 'Tm_hydrohalite', 'T_diss_halite')
+FLAG_KEYS = ('liquid_co2_present', 'vapor_co2_present', 'aqueous_brine_present', 'co2_purity_confirmed',
+             'vapor_present_at_transition', 'phase_identified')
 FLAG_RELEVANCE = {
     'liquid_co2_present': ('Tm_clath',),
     'vapor_co2_present': ('Tm_clath',),
     'aqueous_brine_present': ('Tm_clath',),
     'co2_purity_confirmed': ('Th_CO2', 'Tm_clath'),
+    'vapor_present_at_transition': ('T_diss_halite',),
+    'phase_identified': ('Tm_hydrohalite',),
     'homogenization_to': ('Th_CO2', 'Th_total'),
 }
 
@@ -76,6 +87,8 @@ _KIND_ALIASES = {
     'tm_co2': 'Tm_CO2', 'tm co2': 'Tm_CO2',
     'th_total': 'Th_total', 'th_tot': 'Th_total', 'th общ.': 'Th_total', 'th общ': 'Th_total', 'th': 'Th_total',
     'te': 'Te', 'эвтектика': 'Te',
+    'tm_hydrohalite': 'Tm_hydrohalite', 'tm гидрогалит': 'Tm_hydrohalite', 'hydrohalite': 'Tm_hydrohalite',
+    't_diss_halite': 'T_diss_halite', 't раств. галита': 'T_diss_halite', 'halite': 'T_diss_halite',
 }
 _TRUE = {'true', 'yes', 'y', '1', 'да', 'д', '+', 'истина', 'x', 'х'}
 _FALSE = {'false', 'no', 'n', '0', 'нет', 'н', '-', '−', 'ложь'}

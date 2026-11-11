@@ -83,10 +83,20 @@ class TestDispatch(unittest.TestCase):
         self.assertNotIn('давление минералообразования', lines['Результат'].lower())
 
     def test_record_only_kinds_skipped(self):
-        for k in ('Th_total', 'Tm_CO2', 'Te'):
-            o = calc.calculate_observation(obs(k, 250 if k == 'Th_total' else -56.6))
-            self.assertEqual(o.status, 'skipped')
+        o = calc.calculate_observation(obs('Th_total', 250))
+        self.assertEqual(o.status, 'skipped')
+        self.assertIsNone(o.value)
+
+    def test_te_and_tm_co2_are_interpreted_not_calculated(self):
+        """Te и Tm CO₂ больше не «только регистрация»: выдаётся диагностическая интерпретация без числа."""
+        from fluid_app.methods import method_category, status_label
+        for k in ('Tm_CO2', 'Te'):
+            o = calc.calculate_observation(obs(k, -56.6))
+            self.assertEqual(o.status, 'ok')
             self.assertIsNone(o.value)
+            self.assertEqual(method_category(o.method_key), 'interpretation')
+            self.assertEqual(status_label(o.status, o.method_key), 'интерпретация (не расчёт)')
+            self.assertEqual(o.extras['category'], 'interpretation')
 
     def test_missing_temperature(self):
         o = calc.calculate_observation(obs('Tm_ice', None))
