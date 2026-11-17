@@ -1,5 +1,5 @@
 FluidCalc — журнал автоматических проверок
-Дата: 2026-11-17 07:16:27 UTC
+Дата: 2026-11-17 13:06:10 UTC
 Python:     3.13.18 (/usr/local/bin/python3)
 Платформа:  Linux-6.18.44-fc-v553-x86_64-with-glibc2.39
 glibc:      2.39
@@ -11,7 +11,7 @@ numpy       2.5.3
 scipy       НЕ ДОСТУПЕН (No module named 'scipy') — не обязателен
 pandas      3.0.5
 Проверка CoolProp: ρ(CO₂, ж, 20 °C) = 0.773387 г/см³, P_sat = 57.2905 бар
-FluidCalc:  0.6.0; ядро fluid_core 0.2
+FluidCalc:  0.6.1; ядро fluid_core 0.2
 
 ================ 1. Программные и регрессионные тесты (tests/) ================
 test_decimal_comma_quoted (test_batch.TestBatch.test_decimal_comma_quoted) ... ok
@@ -138,7 +138,7 @@ test_domain (test_duan1995_mao2013.TestMao2013.test_domain) ... ok
 test_interpolation_between_parameter_sets (test_duan1995_mao2013.TestMao2013.test_interpolation_between_parameter_sets) ... ok
 test_published_values (test_duan1995_mao2013.TestMao2013.test_published_values)
 Mao et al. (2013), табл. 9 (2 моль/кг NaCl): 373,15 K и 623,15 K при 1000 бар; табл. 7: 298,15 K, 100 бар. ... ok
-test_calculation_ignores_experiment_structure (test_experiment.TestExperimentDatabase.test_calculation_ignores_experiment_structure) ... /home/user/LGI_Calculation/fluid_app/calc.py:709: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7fb73834b6a0>
+test_calculation_ignores_experiment_structure (test_experiment.TestExperimentDatabase.test_calculation_ignores_experiment_structure) ... /home/user/LGI_Calculation/fluid_app/calc.py:709: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f772a0d76a0>
   def _pvtx_outcome(group: list[tuple[dict, Outcome]]) -> tuple[dict, Outcome] | None:
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
 ok
@@ -302,9 +302,17 @@ test_forward_equals_existing_isochore (test_trapping.TestLinearIsochore.test_for
 test_inverse_algebra (test_trapping.TestLinearIsochore.test_inverse_algebra) ... ok
 test_limits_no_extrapolation (test_trapping.TestLinearIsochore.test_limits_no_extrapolation) ... ok
 test_ranges_are_endpoint_values_sorted (test_trapping.TestLinearIsochore.test_ranges_are_endpoint_values_sorted) ... ok
+test_calculation_uses_same_storage (test_ui_settings.TestCarbonicFractionInAddInclusion.test_calculation_uses_same_storage)
+φ из диалога включения попадает в расчёт так же, как φ из контекстного меню. ... ok
+test_saved_reopened_and_cleared_for_next (test_ui_settings.TestCarbonicFractionInAddInclusion.test_saved_reopened_and_cleared_for_next) ... ok
+test_validation (test_ui_settings.TestCarbonicFractionInAddInclusion.test_validation) ... ok
+test_layout_follows_scale (test_ui_settings.TestFontScale.test_layout_follows_scale)
+Размеры, заданные в пикселях, растут вместе со шрифтом; диалог помещается на экран. ... ok
+ok
+test_steps_and_limits (test_ui_settings.TestFontScale.test_steps_and_limits) ... ok
 
 ----------------------------------------------------------------------
-Ran 261 tests in 5.820s
+Ran 267 tests in 14.067s
 
 OK
 
@@ -367,7 +375,7 @@ test_th_total_cases (validation.test_models.TestStage2bPart5.test_th_total_cases
 test_working_isochore_differs_from_author_as_documented (validation.test_models.TestStage2bPart5.test_working_isochore_differs_from_author_as_documented) ... ok
 
 ----------------------------------------------------------------------
-Ran 49 tests in 3.664s
+Ran 49 tests in 4.768s
 
 OK
 
@@ -427,7 +435,7 @@ OK
 
 ================ Сводка ================
 Программные тесты (tests/):
-  passed:  260
+  passed:  265
   failed:  0
   skipped: 0
 Тесты контрольных точек (validation/):

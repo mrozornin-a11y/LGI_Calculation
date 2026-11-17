@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDateTimeEdit
 
 from ..db import DIRECTIONS, SESSION_DATE_FORMAT, Database, DatabaseError
 from ..methods import HOMOGENIZATION, kind_label
+from .dialogs import CarbonicFractionFields
+from .fontscale import fit_to_screen, px, scroll_body
 from .widgets import NumberEdit
 
 MUTED = 'color:#52514e'
@@ -103,7 +105,7 @@ class InclusionSketch(QWidget):
     def __init__(self, parent=None, compact: bool = False):
         super().__init__(parent)
         self.liquid = self.vapor = self.solid = None
-        self.setMinimumSize(120, 84) if compact else self.setMinimumSize(190, 130)
+        self.setMinimumSize(px(120), px(84)) if compact else self.setMinimumSize(px(190), px(130))
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed if compact else QSizePolicy.Preferred)
 
     def set_phases(self, liquid, vapor, solid):
@@ -189,7 +191,7 @@ class PhaseStateEditor(QWidget):
         self.t_room = QRadioButton('комнатная, точное значение не указано')
         self.t_value = QRadioButton('значение:')
         self.temperature = NumberEdit(placeholder='°C')
-        self.temperature.setMaximumWidth(90)
+        self.temperature.setMaximumWidth(px(90))
         self._group = QButtonGroup(self)
         for rb in (self.t_none, self.t_room, self.t_value):
             self._group.addButton(rb)
@@ -270,9 +272,12 @@ def _buttons(dialog: QDialog, accept) -> QDialogButtonBox:
 
 # --- создание включения одним окном -----------------------------------------------------
 class AddInclusionDialog(QDialog):
-    """Единый диалог: образец, минерал, группа (FIA), номер, наблюдаемые фазы, температура, примечание.
+    """Единый диалог: образец, минерал, группа (FIA), номер, наблюдаемые фазы, температура, доля углекислотной
+    фазы (необязательно), примечание.
 
-    Узлы дерева создаются автоматически и без дубликатов; включение с уже занятым номером не создаётся."""
+    Узлы дерева создаются автоматически и без дубликатов; включение с уже занятым номером не создаётся.
+    Доля углекислотной фазы сохраняется тем же методом Database.set_carbonic_fraction, что и в диалоге
+    «Доля углекислотной фазы…» контекстного меню включения."""
     added = Signal(int)
 
     def __init__(self, parent, db: Database, project_id: int | None = None, sample: str = '', mineral: str = '',
@@ -283,7 +288,7 @@ class AddInclusionDialog(QDialog):
         self._number_auto = True
         self.setWindowTitle('Добавить включение')
         self.setMinimumWidth(620)
-        lay = QVBoxLayout(self)
+        lay, outer = scroll_body(self)      # при крупном шрифте содержимое прокручивается, кнопки видны всегда
         form = QFormLayout()
         self.project = QComboBox()
         for p in db.projects():
@@ -295,7 +300,7 @@ class AddInclusionDialog(QDialog):
         self.fia = self._editable('необязательно; выберите или введите')
         self.fia.setToolTip(FIA_HINT)
         self.number = QLineEdit()
-        self.number.setMaximumWidth(140)
+        self.number.setMaximumWidth(px(140))
         self.number.textEdited.connect(self._number_edited)
         self.inclusion_type = QLineEdit()
         self.inclusion_type.setPlaceholderText('необязательно, обозначение лаборатории, напр. L+V')
@@ -313,6 +318,14 @@ class AddInclusionDialog(QDialog):
         bl.addWidget(self.state)
         bl.addWidget(_note_label(SKETCH_NOTE))
         lay.addWidget(box)
+        phi_box = QGroupBox('Доля углекислотной фазы (необязательно)')
+        pl = QVBoxLayout(phi_box)
+        self.phi = CarbonicFractionFields(compact=True)
+        pl.addWidget(self.phi)
+        pl.addWidget(_note_label('Жидкая + газовая CO₂, % объёма включения; пусто — не определена. Температура '
+                                 'оценки не подставляется и не берётся из исходного состояния. Изменить позже: '
+                                 'правая кнопка на включении → «Доля углекислотной фазы…».'))
+        lay.addWidget(phi_box)
         nf = QFormLayout()
         self.note = QLineEdit()
         nf.addRow('Примечание', self.note)
@@ -321,6 +334,7 @@ class AddInclusionDialog(QDialog):
         self.status.setStyleSheet('color:#2e6b2e')
         self.status.setWordWrap(True)
         lay.addWidget(self.status)
+        lay.addStretch()
         row = QHBoxLayout()
         row.addStretch()
         self.add_btn = QPushButton('Добавить')
@@ -332,7 +346,7 @@ class AddInclusionDialog(QDialog):
         close.clicked.connect(self.reject)
         for b in (self.add_btn, self.next_btn, close):
             row.addWidget(b)
-        lay.addLayout(row)
+        outer.addLayout(row)
 
         self.project.currentIndexChanged.connect(self._fill_samples)
         self.sample.editTextChanged.connect(self._sample_changed)
@@ -341,6 +355,7 @@ class AddInclusionDialog(QDialog):
         self.mineral.setEditText(mineral or '')
         self._fill_fias()
         self.fia.setEditText(fia or '')
+        fit_to_screen(self)
 
     @staticmethod
     def _editable(placeholder: str) -> QComboBox:
@@ -423,6 +438,15 @@ class AddInclusionDialog(QDialog):
         except ValueError as exc:
             QMessageBox.warning(self, 'Ошибка ввода', f'Температура наблюдения: {exc}')
             return False
+        try:
+            phi = self.phi.values()
+        except ValueError as exc:
+            QMessageBox.warning(self, 'Ошибка ввода', f'Доля углекислотной фазы: {exc}')
+            return False
+        if phi[0] is None and self.phi.has_details():
+            QMessageBox.warning(self, 'Ошибка ввода', 'Доля углекислотной фазы: погрешность, способ или температура '
+                                'оценки указаны без самой доли. Введите долю или очистите эти поля.')
+            return False
         sid = self._sample_id()
         if sid is not None and self.db.find_inclusion(sid, name):
             QMessageBox.warning(self, 'Добавить включение',
@@ -435,6 +459,8 @@ class AddInclusionDialog(QDialog):
             inc_id = self.db.add_inclusion(sid, name, mid, fid, self.inclusion_type.text().strip(),
                                            self.note.text().strip())
             self.db.set_initial_state(inc_id, liquid, vapor, solid, temp, room)
+            if phi[0] is not None:
+                self.db.set_carbonic_fraction(inc_id, *phi)
         except DatabaseError as exc:
             QMessageBox.warning(self, 'Добавить включение', str(exc))
             return False
@@ -454,6 +480,7 @@ class AddInclusionDialog(QDialog):
         self._fill_fias()
         self.fia.setEditText(fia)
         self.state.reset()
+        self.phi.clear()
         self.inclusion_type.clear()
         self.note.clear()
         self.number.setFocus()
@@ -557,7 +584,7 @@ class StageDialog(QDialog):
         self.s_room = QRadioButton('комнатная, точное значение не указано')
         self.s_value = QRadioButton('значение:')
         self.start = NumberEdit(placeholder='°C')
-        self.start.setMaximumWidth(90)
+        self.start.setMaximumWidth(px(90))
         self._group = QButtonGroup(self)
         for rb in (self.s_none, self.s_room, self.s_value):
             self._group.addButton(rb)
@@ -788,6 +815,7 @@ class ExperimentPanel(QWidget):
         head.addWidget(self.toggle)
         self.caption = QLabel()
         self.caption.setStyleSheet(MUTED)
+        self.caption.setWordWrap(True)
         head.addWidget(self.caption, 1)
         self.new_session_btn = _small_button('Новый сеанс…', self.new_session,
                                              'Начать новый сеанс измерений этого включения (в другой день — новый сеанс)')
@@ -855,7 +883,7 @@ class ExperimentPanel(QWidget):
             hint = _note_label('Сеансов пока нет. Нажмите «Новый сеанс…», затем добавьте этап «Охлаждение» или '
                                '«Нагревание» и вносите наблюдения прямо в этап. Таблицей ниже можно пользоваться '
                                'и без сеансов.')
-            hint.setMaximumWidth(360)
+            hint.setMaximumWidth(px(360))
             row.addWidget(hint, 0, Qt.AlignTop)
         row.addStretch(1)
         self._set_content(content)
@@ -871,7 +899,11 @@ class ExperimentPanel(QWidget):
     @staticmethod
     def _arrow() -> QLabel:
         lab = QLabel('→')
-        lab.setStyleSheet('color:#6b6b68;font-size:16pt')
+        lab.setStyleSheet('color:#6b6b68')
+        f = QFont(lab.font())               # крупнее текущего шрифта приложения (масштаб «Вид → Размер шрифта»)
+        if f.pointSizeF() > 0:
+            f.setPointSizeF(f.pointSizeF() * 1.6)
+        lab.setFont(f)
         return lab
 
     def _initial_card(self, inc) -> QFrame:
@@ -895,7 +927,7 @@ class ExperimentPanel(QWidget):
             v.addWidget(_note_label(inc['description']))
         v.addWidget(_small_button('Изменить…', self.edit_initial))
         v.addStretch()
-        card.setFixedWidth(190)
+        card.setFixedWidth(px(190))
         self.initial_card = card
         return card
 
@@ -973,7 +1005,7 @@ class ExperimentPanel(QWidget):
                             'Открыть диалог наблюдения; запись появится и здесь, и в таблице измерений')
         v.addWidget(add)
         v.addStretch()
-        card.setMinimumWidth(215)
+        card.setMinimumWidth(px(215))
         card.add_button = add
         self.stage_cards[stid] = card
         self.timelines[stid] = tl
@@ -992,7 +1024,7 @@ class ExperimentPanel(QWidget):
         ids = [o['id'] for o in observations]
         v.addWidget(_small_button('Привязать к этапу…', lambda: self.assign_requested.emit(ids)))
         v.addStretch()
-        card.setFixedWidth(250)
+        card.setFixedWidth(px(250))
         self.unlinked_card = card
         return card
 

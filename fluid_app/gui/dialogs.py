@@ -7,13 +7,14 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-                               QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox,
+                               QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox,
                                QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem, QTabWidget,
                                QVBoxLayout, QWidget)
 
 from .. import importer
 from ..db import Database, DatabaseError
 from ..methods import KINDS, KIND_ORDER, KIND_NO_CALC_REASON, HOMOGENIZATION, kind_label
+from .fontscale import fit_to_screen, scroll_body
 from .widgets import HomogCombo, NumberEdit, TriStateCombo
 
 log = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class ObservationDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle('Наблюдение' if obs else 'Новое наблюдение')
         self.setMinimumWidth(560)
-        lay = QVBoxLayout(self)
+        lay, outer = scroll_body(self)      # при крупном шрифте содержимое прокручивается, кнопки видны всегда
         lay.addWidget(QLabel(f'<b>Включение:</b> {inclusion_label}'))
         form = QFormLayout()
         self.kind = QComboBox()
@@ -78,7 +79,7 @@ class ObservationDialog(QDialog):
         bb.button(QDialogButtonBox.Cancel).setText('Отмена')
         bb.accepted.connect(self._accept)
         bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        outer.addWidget(bb)
         self.kind.currentIndexChanged.connect(self._update_enabled)
         if obs:
             self.kind.setCurrentIndex(self.kind.findData(obs['kind']))
@@ -95,6 +96,7 @@ class ObservationDialog(QDialog):
             self.phase_notes.setText(obs.get('phase_notes') or '')
             self.comment.setText(obs.get('comment') or '')
         self._update_enabled()
+        fit_to_screen(self)
         self.result: dict | None = None
 
     def _update_enabled(self):
@@ -494,6 +496,78 @@ class InclusionContextDialog(QDialog):
         self.accept()
 
 
+PHI_HINT = ('φ — доля всей углекислотной фазы (жидкая + газовая CO₂) в объёме включения. Используется '
+            'строгой моделью H₂O–CO₂–NaCl и объёмным балансом; основная неопределённость результата — '
+            'именно φ. Для строгой модели температура оценки обязательна и должна быть не ниже Tm клатрата; '
+            'программа её не подставляет.')
+
+
+class CarbonicFractionFields(QWidget):
+    """Поля доли углекислотной фазы: φ, погрешность, способ и температура оценки.
+
+    Общие для диалога «Доля углекислотной фазы» и диалога «Добавить включение». values() возвращает
+    аргументы Database.set_carbonic_fraction (доли единицы); пустое φ — «не определена». Способ оценки
+    не выбирается заранее: пустое поле — «не указан»."""
+
+    def __init__(self, parent=None, compact: bool = False):
+        super().__init__(parent)
+        self.value = NumberEdit(placeholder='пусто — не определена')
+        self.unc = NumberEdit(placeholder='необязательно')
+        self.method = QComboBox()
+        self.method.setEditable(True)
+        self.method.addItems(PHI_METHODS)
+        self.method.setCurrentIndex(-1)
+        self.method.lineEdit().setPlaceholderText('не указан')
+        self.temp = NumberEdit(placeholder='°C; пусто — не указана')
+        rows = (('Доля углекислотной фазы, об. %', self.value), ('Погрешность ±, об. %', self.unc),
+                ('Способ оценки', self.method), ('Температура оценки, °C', self.temp))
+        if compact:                         # две колонки: «значение | погрешность», «способ | температура»
+            grid = QGridLayout(self)
+            grid.setContentsMargins(0, 0, 0, 0)
+            for n, (label, w) in enumerate(rows):
+                r, c = divmod(n, 2)
+                grid.addWidget(QLabel(label), r, 2 * c)
+                grid.addWidget(w, r, 2 * c + 1)
+            grid.setColumnStretch(1, 1)
+            grid.setColumnStretch(3, 1)
+        else:
+            form = QFormLayout(self)
+            form.setContentsMargins(0, 0, 0, 0)
+            for label, w in rows:
+                form.addRow(label, w)
+
+    def set_from_inclusion(self, inc) -> None:
+        self.clear()
+        if inc is not None and inc['carbonic_fraction'] is not None:
+            self.value.set_value(100 * inc['carbonic_fraction'])
+            if inc['carbonic_fraction_unc'] is not None:
+                self.unc.set_value(100 * inc['carbonic_fraction_unc'])
+            if inc['carbonic_fraction_method']:
+                self.method.setCurrentText(inc['carbonic_fraction_method'])
+            if inc['carbonic_fraction_temp_c'] is not None:
+                self.temp.set_value(inc['carbonic_fraction_temp_c'])
+
+    def clear(self) -> None:
+        for w in (self.value, self.unc, self.temp):
+            w.clear()
+        self.method.setCurrentIndex(-1)
+        self.method.setEditText('')
+
+    def has_details(self) -> bool:
+        """Заполнены погрешность, способ или температура (без них φ одна — нормально)."""
+        return bool(self.unc.text().strip() or self.method.currentText().strip() or self.temp.text().strip())
+
+    def values(self) -> tuple:
+        """(φ, погрешность, способ, температура) для set_carbonic_fraction. ValueError при ошибке ввода."""
+        v, u, t = self.value.value(), self.unc.value(), self.temp.value()
+        if v is not None and not 0 <= v <= 100:
+            raise ValueError('φ должна быть от 0 до 100 %')
+        if u is not None and not 0 <= u <= 100:
+            raise ValueError('погрешность должна быть от 0 до 100 %')
+        return (None if v is None else v / 100, None if u is None else u / 100,
+                self.method.currentText().strip() or None, t)
+
+
 class CarbonicFractionDialog(QDialog):
     """Объёмная доля углекислотной фазы (жидкая + газовая CO₂) включения при комнатной температуре."""
 
@@ -503,33 +577,16 @@ class CarbonicFractionDialog(QDialog):
         self.setMinimumWidth(520)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel(f'<b>Включение:</b> {inclusion_label}'))
-        form = QFormLayout()
-        self.value = NumberEdit(placeholder='%, напр. 30 (пусто — не определена)')
-        self.unc = NumberEdit(placeholder='± %, напр. 10')
-        self.method = QComboBox()
-        self.method.setEditable(True)
-        self.method.addItems(PHI_METHODS)
-        self.temp = NumberEdit(placeholder='°C, напр. 22 (комнатная)')
-        form.addRow('φ, % объёма включения', self.value)
-        form.addRow('Погрешность ±, %', self.unc)
-        form.addRow('Способ оценки', self.method)
-        form.addRow('Температура оценки, °C', self.temp)
-        lay.addLayout(form)
-        hint = QLabel('φ — доля всей углекислотной фазы (жидкая + газовая CO₂) в объёме включения. Используется '
-                      'строгой моделью H₂O–CO₂–NaCl и объёмным балансом; основная неопределённость результата — '
-                      'именно φ. Для строгой модели температура оценки обязательна и должна быть не ниже Tm клатрата; '
-                      'программа её не подставляет.')
+        self.fields = CarbonicFractionFields(self)
+        # прежние имена полей сохранены для совместимости
+        self.value, self.unc, self.method, self.temp = (self.fields.value, self.fields.unc, self.fields.method,
+                                                        self.fields.temp)
+        lay.addWidget(self.fields)
+        hint = QLabel(PHI_HINT)
         hint.setWordWrap(True)
         hint.setStyleSheet('color:#52514e')
         lay.addWidget(hint)
-        if inc is not None and inc['carbonic_fraction'] is not None:
-            self.value.set_value(100 * inc['carbonic_fraction'])
-            if inc['carbonic_fraction_unc'] is not None:
-                self.unc.set_value(100 * inc['carbonic_fraction_unc'])
-            if inc['carbonic_fraction_method']:
-                self.method.setCurrentText(inc['carbonic_fraction_method'])
-            if inc['carbonic_fraction_temp_c'] is not None:
-                self.temp.set_value(inc['carbonic_fraction_temp_c'])
+        self.fields.set_from_inclusion(inc)
         bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         bb.button(QDialogButtonBox.Save).setText('Сохранить')
         bb.button(QDialogButtonBox.Cancel).setText('Отмена')
@@ -540,14 +597,8 @@ class CarbonicFractionDialog(QDialog):
 
     def _accept(self):
         try:
-            v, u, t = self.value.value(), self.unc.value(), self.temp.value()
-            if v is not None and not 0 <= v <= 100:
-                raise ValueError('φ должна быть от 0 до 100 %')
-            if u is not None and not 0 <= u <= 100:
-                raise ValueError('погрешность должна быть от 0 до 100 %')
+            self.result = self.fields.values()
         except ValueError as exc:
             QMessageBox.warning(self, 'Ошибка ввода', str(exc))
             return
-        self.result = (None if v is None else v / 100, None if u is None else u / 100,
-                       self.method.currentText().strip() or None, t)
         self.accept()

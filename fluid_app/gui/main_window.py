@@ -5,10 +5,10 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, Qt, QThread, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QKeySequence
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
+from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
                                QHeaderView, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QProgressBar,
-                               QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTextBrowser,
+                               QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QTextBrowser,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QCheckBox)
 
 from .. import APP_TITLE, __version__
@@ -22,6 +22,7 @@ from ..methods import (HOMOGENIZATION, KINDS, METHODS, STATUS_RU, kind_label, me
 from ..paths import default_db_path, log_file_path, project_root
 from ..plots import GROUP_BY, PLOT_TYPES, make_figure, save_figure
 from .dialogs import ImportDialog, ObservationDialog, TextDialog
+from . import fontscale
 from .experiment import (AddInclusionDialog, AssignStageDialog, ExperimentPanel, fmt_session_date)
 from .widgets import HomogCombo, NumberEdit, TriStateCombo, passport_html
 
@@ -70,6 +71,14 @@ class CalcWorker(QObject):
             self.failed.emit(str(exc))
 
 
+def _scrollable(page: QWidget) -> QScrollArea:
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.NoFrame)
+    area.setWidget(page)
+    return area
+
+
 def _flag_text(v):
     return '' if v is None else ('да' if v else 'нет')
 
@@ -116,6 +125,8 @@ class MainWindow(QMainWindow):
         self._pending_scope: tuple | None = None
         self.setWindowTitle(APP_TITLE)
         self.resize(1400, 860)
+        # масштаб шрифта применяется до построения окна: размеры, заданные в пикселях, берутся по масштабу
+        fontscale.apply_font_scale(self.settings.value(fontscale.SETTINGS_KEY, fontscale.DEFAULT_SCALE))
         self._build_ui()
         path = db_path or self.settings.value('db_path') or str(default_db_path())
         self.open_database(path)
@@ -128,7 +139,7 @@ class MainWindow(QMainWindow):
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
         ll.addWidget(QLabel('<b>Проекты и объекты</b>'))
-        brow = QHBoxLayout()
+        brow = QVBoxLayout()               # одна под другой: при крупном шрифте не расширяют левую панель
         self.project_btn = QPushButton('Создать проект')
         self.project_btn.clicked.connect(self.add_project)
         self.inclusion_btn = QPushButton('➕ Добавить включение')
@@ -136,8 +147,8 @@ class MainWindow(QMainWindow):
         self.inclusion_btn.setToolTip('Одно окно: образец, минерал, группа включений, номер, наблюдаемые фазы. '
                                       'Нужные узлы дерева создаются автоматически.')
         self.inclusion_btn.clicked.connect(self.add_inclusion)
+        brow.addWidget(self.inclusion_btn)
         brow.addWidget(self.project_btn)
-        brow.addWidget(self.inclusion_btn, 1)
         ll.addLayout(brow)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['Объект', 'Наблюд.'])
@@ -154,10 +165,12 @@ class MainWindow(QMainWindow):
         split.addWidget(left)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_obs_tab(), 'Измерения')
-        self.tabs.addTab(self._build_results_tab(), 'Результаты')
-        self.tabs.addTab(self._build_plot_tab(), 'Графики')
-        self.tabs.addTab(self._build_quick_tab(), 'Быстрый расчёт')
+        # вкладки прокручиваются, если окно уже их содержимого (крупный шрифт на небольшом экране): окно не
+        # выходит за экран, а подписи не обрезаются
+        self.tabs.addTab(_scrollable(self._build_obs_tab()), 'Измерения')
+        self.tabs.addTab(_scrollable(self._build_results_tab()), 'Результаты')
+        self.tabs.addTab(_scrollable(self._build_plot_tab()), 'Графики')
+        self.tabs.addTab(_scrollable(self._build_quick_tab()), 'Быстрый расчёт')
         methods = QTextBrowser()
         methods.setOpenExternalLinks(False)
         methods.setHtml(methods_html())
@@ -218,6 +231,27 @@ class MainWindow(QMainWindow):
         m = self.menuBar().addMenu('&Расчёт')
         m.addAction(self.a_calc_sel)
         m.addAction(self.a_calc_all)
+        m = self.menuBar().addMenu('&Вид')
+        fm = m.addMenu('Размер шрифта')
+        self.a_font_bigger = self._act('Увеличить', lambda: self.set_font_scale(fontscale.step_scale(+1)),
+                                       QKeySequence.ZoomIn)
+        self.a_font_bigger.setShortcuts([QKeySequence(QKeySequence.ZoomIn), QKeySequence('Ctrl+=')])
+        self.a_font_smaller = self._act('Уменьшить', lambda: self.set_font_scale(fontscale.step_scale(-1)),
+                                        QKeySequence.ZoomOut)
+        self.a_font_default = self._act(f'По умолчанию ({fontscale.DEFAULT_SCALE} %)',
+                                        lambda: self.set_font_scale(fontscale.DEFAULT_SCALE), 'Ctrl+0')
+        for a in (self.a_font_bigger, self.a_font_smaller, self.a_font_default):
+            fm.addAction(a)
+        fm.addSeparator()
+        self.font_scale_group = QActionGroup(self)
+        self.font_scale_actions: dict[int, QAction] = {}
+        for scale in fontscale.SCALES:
+            a = QAction(f'{scale} %', self, checkable=True)
+            a.triggered.connect(lambda _=False, sc=scale: self.set_font_scale(sc))
+            self.font_scale_group.addAction(a)
+            fm.addAction(a)
+            self.font_scale_actions[scale] = a
+        self._sync_font_actions()
         m = self.menuBar().addMenu('&Справка')
         m.addAction(self._act('Методики, источники и ограничения', lambda: self.tabs.setCurrentIndex(4)))
         m.addAction(self.a_log)
@@ -384,12 +418,32 @@ class MainWindow(QMainWindow):
         note.setStyleSheet('color:#52514e')
         form.addRow(note)
         self.q_kind.currentIndexChanged.connect(self._quick_enabled)
-        left.setMaximumWidth(460)
+        left.setMaximumWidth(fontscale.px(460))
+        self._quick_left = left
         lay.addWidget(left)
         self.q_out = QTextBrowser()
         lay.addWidget(self.q_out, 1)
         self._quick_enabled()
         return w
+
+    # ------------------------------------------------------------------ вид
+    def set_font_scale(self, scale) -> int:
+        """Масштаб шрифта всего приложения (%); сохраняется в QSettings и действует после перезапуска."""
+        scale = fontscale.apply_font_scale(scale)
+        self.settings.setValue(fontscale.SETTINGS_KEY, scale)
+        self._sync_font_actions()
+        self._quick_left.setMaximumWidth(fontscale.px(460))
+        if self.db:
+            self.refresh_all()             # ширины столбцов и карточки панели «Ход эксперимента» — по новому шрифту
+        self.statusBar().showMessage(f'Размер шрифта: {scale} %', 5000)
+        return scale
+
+    def _sync_font_actions(self):
+        scale = fontscale.current_scale()
+        self.font_scale_actions[scale].setChecked(True)
+        self.a_font_bigger.setEnabled(scale < fontscale.SCALES[-1])
+        self.a_font_smaller.setEnabled(scale > fontscale.SCALES[0])
+        self.a_font_default.setEnabled(scale != fontscale.DEFAULT_SCALE)
 
     # ------------------------------------------------------------------ база
     def open_database(self, path: str) -> bool:
