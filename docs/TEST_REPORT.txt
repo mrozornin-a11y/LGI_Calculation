@@ -1,7 +1,7 @@
 FluidCalc — журнал автоматических проверок
-Дата: 2026-11-13 10:41:10 UTC
+Дата: 2026-11-17 07:16:27 UTC
 Python:     3.13.18 (/usr/local/bin/python3)
-Платформа:  Linux-6.18.44-fc-v445-x86_64-with-glibc2.39
+Платформа:  Linux-6.18.44-fc-v553-x86_64-with-glibc2.39
 glibc:      2.39
 PySide6     6.12.0
 CoolProp    8.0.0
@@ -11,7 +11,7 @@ numpy       2.5.3
 scipy       НЕ ДОСТУПЕН (No module named 'scipy') — не обязателен
 pandas      3.0.5
 Проверка CoolProp: ρ(CO₂, ж, 20 °C) = 0.773387 г/см³, P_sat = 57.2905 бар
-FluidCalc:  0.5.0; ядро fluid_core 0.2
+FluidCalc:  0.6.0; ядро fluid_core 0.2
 
 ================ 1. Программные и регрессионные тесты (tests/) ================
 test_decimal_comma_quoted (test_batch.TestBatch.test_decimal_comma_quoted) ... ok
@@ -138,10 +138,20 @@ test_domain (test_duan1995_mao2013.TestMao2013.test_domain) ... ok
 test_interpolation_between_parameter_sets (test_duan1995_mao2013.TestMao2013.test_interpolation_between_parameter_sets) ... ok
 test_published_values (test_duan1995_mao2013.TestMao2013.test_published_values)
 Mao et al. (2013), табл. 9 (2 моль/кг NaCl): 373,15 K и 623,15 K при 1000 бар; табл. 7: 298,15 K, 100 бар. ... ok
-test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... /usr/local/lib/python3.13/enum.py:696: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f4b5f74b100>
-  def __call__(cls, value, names=_not_given, *values, module=None, qualname=None, type=None, start=1, boundary=None):
+test_calculation_ignores_experiment_structure (test_experiment.TestExperimentDatabase.test_calculation_ignores_experiment_structure) ... /home/user/LGI_Calculation/fluid_app/calc.py:709: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7fb73834b6a0>
+  def _pvtx_outcome(group: list[tuple[dict, Outcome]]) -> tuple[dict, Outcome] | None:
 ResourceWarning: Enable tracemalloc to get the object allocation traceback
 ok
+test_export_import_keeps_sessions_and_stages (test_experiment.TestExperimentDatabase.test_export_import_keeps_sessions_and_stages) ... ok
+test_migration_from_v3_keeps_data_and_leaves_observations_unlinked (test_experiment.TestExperimentDatabase.test_migration_from_v3_keeps_data_and_leaves_observations_unlinked) ... ok
+test_next_inclusion_name (test_experiment.TestExperimentDatabase.test_next_inclusion_name) ... ok
+test_old_format_file_imports_without_sessions (test_experiment.TestExperimentDatabase.test_old_format_file_imports_without_sessions) ... ok
+test_sessions_stages_and_reopen (test_experiment.TestExperimentDatabase.test_sessions_stages_and_reopen) ... ok
+test_stage_rules (test_experiment.TestExperimentDatabase.test_stage_rules) ... ok
+test_add_inclusion_dialog (test_experiment.TestExperimentGui.test_add_inclusion_dialog) ... ok
+test_panel_and_table_show_the_same_records (test_experiment.TestExperimentGui.test_panel_and_table_show_the_same_records) ... ok
+test_panel_collapse_and_no_inclusion (test_experiment.TestExperimentGui.test_panel_collapse_and_no_inclusion) ... ok
+test_import_dialog_and_threaded_calculation (test_gui.TestMainWindow.test_import_dialog_and_threaded_calculation) ... ok
 test_new_kinds_input_calculation_save_reopen_export (test_gui.TestMainWindow.test_new_kinds_input_calculation_save_reopen_export)
 Галит, гидрогалит, Te, Tm CO₂ и условия захвата: ввод → расчёт → сохранение → открытие → экспорт. ... ok
 test_observation_dialog (test_gui.TestMainWindow.test_observation_dialog) ... ok
@@ -294,7 +304,7 @@ test_limits_no_extrapolation (test_trapping.TestLinearIsochore.test_limits_no_ex
 test_ranges_are_endpoint_values_sorted (test_trapping.TestLinearIsochore.test_ranges_are_endpoint_values_sorted) ... ok
 
 ----------------------------------------------------------------------
-Ran 251 tests in 5.810s
+Ran 261 tests in 5.820s
 
 OK
 
@@ -357,7 +367,7 @@ test_th_total_cases (validation.test_models.TestStage2bPart5.test_th_total_cases
 test_working_isochore_differs_from_author_as_documented (validation.test_models.TestStage2bPart5.test_working_isochore_differs_from_author_as_documented) ... ok
 
 ----------------------------------------------------------------------
-Ran 49 tests in 3.570s
+Ran 49 tests in 3.664s
 
 OK
 
@@ -417,7 +427,7 @@ OK
 
 ================ Сводка ================
 Программные тесты (tests/):
-  passed:  250
+  passed:  260
   failed:  0
   skipped: 0
 Тесты контрольных точек (validation/):

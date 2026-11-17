@@ -1,5 +1,6 @@
 """Хранение данных в SQLite: иерархия проект → образец → минерал → FIA → включение →
-наблюдения, неизменяемые версии расчётов, журнал импорта. Миграции через PRAGMA user_version.
+наблюдения; ход эксперимента: включение → сеансы → этапы охлаждения/нагревания → наблюдения;
+неизменяемые версии расчётов, журнал импорта. Миграции через PRAGMA user_version.
 """
 from __future__ import annotations
 
@@ -153,6 +154,38 @@ MIGRATIONS: list[str] = [
         CHECK(coeval_documented IS NULL OR coeval_documented IN (0,1));
     ALTER TABLE inclusions ADD COLUMN coeval_note TEXT;
     """,
+    # v4 — ход эксперимента: сеансы (дата опыта задаётся оператором и не равна дате ввода), последовательные этапы
+    # охлаждения/нагревания, привязка наблюдения к этапу; исходное состояние включения (наблюдаемые фазы и температура
+    # наблюдения). Все новые поля необязательны: прежние наблюдения остаются «без привязки к сеансу», прежние
+    # включения — с исходным состоянием «не указано». Расчёты эти сведения не используют.
+    """
+    CREATE TABLE sessions(
+        id INTEGER PRIMARY KEY,
+        inclusion_id INTEGER NOT NULL REFERENCES inclusions(id) ON DELETE CASCADE,
+        started_at TEXT,
+        note TEXT,
+        finished INTEGER NOT NULL DEFAULT 0 CHECK(finished IN (0,1)),
+        created_at TEXT NOT NULL);
+    CREATE INDEX idx_sessions_inclusion ON sessions(inclusion_id);
+    CREATE TABLE stages(
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        direction TEXT NOT NULL CHECK(direction IN ('cooling','heating')),
+        start_temperature_c REAL,
+        start_room INTEGER NOT NULL DEFAULT 0 CHECK(start_room IN (0,1)),
+        end_temperature_c REAL,
+        note TEXT,
+        created_at TEXT NOT NULL);
+    CREATE INDEX idx_stages_session ON stages(session_id);
+    ALTER TABLE observations ADD COLUMN stage_id INTEGER REFERENCES stages(id) ON DELETE SET NULL;
+    CREATE INDEX idx_obs_stage ON observations(stage_id);
+    ALTER TABLE inclusions ADD COLUMN initial_liquid INTEGER CHECK(initial_liquid IS NULL OR initial_liquid IN (0,1));
+    ALTER TABLE inclusions ADD COLUMN initial_vapor INTEGER CHECK(initial_vapor IS NULL OR initial_vapor IN (0,1));
+    ALTER TABLE inclusions ADD COLUMN initial_solid INTEGER CHECK(initial_solid IS NULL OR initial_solid IN (0,1));
+    ALTER TABLE inclusions ADD COLUMN initial_temperature_c REAL;
+    ALTER TABLE inclusions ADD COLUMN initial_room INTEGER NOT NULL DEFAULT 0 CHECK(initial_room IN (0,1));
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -165,6 +198,11 @@ OBS_COLUMNS = ('kind', 'temperature_c', 'uncertainty_c', 'homogenization_to', *O
 INCLUSION_CONTEXT_COLUMNS = ('other_salts_confirmed', 'trap_temperature_c', 'trap_temperature_max_c',
                              'trap_pressure_bar', 'trap_pressure_max_bar', 'trap_constraint_source',
                              'coeval_documented', 'coeval_note')
+
+
+INITIAL_PHASE_COLUMNS = ('initial_liquid', 'initial_vapor', 'initial_solid')                      # схема v4
+DIRECTIONS = {'cooling': 'Охлаждение', 'heating': 'Нагревание'}
+SESSION_DATE_FORMAT = '%Y-%m-%d %H:%M'       # дата и время опыта (местное время лаборатории), вводит оператор
 
 
 def now_utc() -> str:
@@ -376,6 +414,127 @@ class Database:
                 f'UPDATE inclusions SET {", ".join(c + "=?" for c in INCLUSION_CONTEXT_COLUMNS)} WHERE id=?',
                 (*(new[c] for c in INCLUSION_CONTEXT_COLUMNS), inclusion_id))
 
+    def set_initial_state(self, inclusion_id: int, liquid: bool | None, vapor: bool | None, solid: bool | None,
+                          temperature_c: float | None = None, room: bool = False) -> None:
+        """Исходное состояние включения: наблюдаемые фазы (None — не указано) и температура наблюдения.
+
+        Температура — конкретное значение ЛИБО признак «комнатная, точное значение не указано» (room=True);
+        число вместо неизвестной комнатной температуры не подставляется. Это описание наблюдения, а не состав:
+        расчёты эти поля не используют."""
+        if temperature_c is not None and room:
+            raise DatabaseError('Укажите либо значение температуры, либо «комнатная, точное значение не указано».')
+        with self.conn:
+            self.conn.execute('UPDATE inclusions SET initial_liquid=?, initial_vapor=?, initial_solid=?, '
+                              'initial_temperature_c=?, initial_room=? WHERE id=?',
+                              (_b2i(liquid), _b2i(vapor), _b2i(solid), temperature_c, int(bool(room)), inclusion_id))
+
+    def set_inclusion_note(self, inclusion_id: int, note: str | None) -> None:
+        with self.conn:
+            self.conn.execute('UPDATE inclusions SET description=? WHERE id=?', ((note or '').strip() or None,
+                                                                                 inclusion_id))
+
+    def set_inclusion_type(self, inclusion_id: int, inclusion_type: str | None) -> None:
+        with self.conn:
+            self.conn.execute('UPDATE inclusions SET inclusion_type=? WHERE id=?', ((inclusion_type or '').strip(),
+                                                                                    inclusion_id))
+
+    def next_inclusion_name(self, sample_id: int | None) -> str:
+        """Следующий свободный номер включения в образце: наибольший числовой номер + 1 (для нового образца — 1)."""
+        if sample_id is None:
+            return '1'
+        nums = [int(r['name']) for r in self._all('SELECT name FROM inclusions WHERE sample_id=?', (sample_id,))
+                if r['name'].strip().isdigit()]
+        return str(max(nums) + 1 if nums else 1)
+
+    # --- сеансы и этапы эксперимента ---------------------------------------------
+    def add_session(self, inclusion_id: int, started_at: str | None = None, note: str | None = None) -> int:
+        """Новый сеанс. started_at — дата и время ОПЫТА ('ГГГГ-ММ-ДД ЧЧ:ММ', None — не указана); дата ввода
+        записывается отдельно (created_at) и с датой опыта не смешивается."""
+        started_at = _session_date(started_at)
+        with self.conn:
+            return self.conn.execute('INSERT INTO sessions(inclusion_id, started_at, note, created_at) '
+                                     'VALUES (?,?,?,?)', (inclusion_id, started_at, (note or '').strip() or None,
+                                                          now_utc())).lastrowid
+
+    def update_session(self, session_id: int, *, started_at: str | None, note: str | None) -> None:
+        started_at = _session_date(started_at)
+        with self.conn:
+            self.conn.execute('UPDATE sessions SET started_at=?, note=? WHERE id=?',
+                              (started_at, (note or '').strip() or None, session_id))
+
+    def set_session_finished(self, session_id: int, finished: bool) -> None:
+        with self.conn:
+            self.conn.execute('UPDATE sessions SET finished=? WHERE id=?', (int(bool(finished)), session_id))
+
+    def delete_session(self, session_id: int) -> None:
+        """Удалить сеанс с этапами. Наблюдения НЕ удаляются — остаются «без привязки к сеансу»."""
+        with self.conn:
+            self.conn.execute('DELETE FROM sessions WHERE id=?', (session_id,))
+
+    def sessions(self, inclusion_id: int) -> list[dict]:
+        """Сеансы включения по дате опыта (без даты — в конце), с порядковым номером 'number'."""
+        rows = self._all("SELECT * FROM sessions WHERE inclusion_id=? ORDER BY COALESCE(started_at, '9999'), id",
+                         (inclusion_id,))
+        return [dict(r, number=n, finished=bool(r['finished'])) for n, r in enumerate(rows, start=1)]
+
+    def session(self, session_id: int) -> dict | None:
+        r = self._one('SELECT * FROM sessions WHERE id=?', (session_id,))
+        if r is None:
+            return None
+        return next(s for s in self.sessions(r['inclusion_id']) if s['id'] == session_id)
+
+    def add_stage(self, session_id: int, direction: str, start_temperature_c: float | None = None,
+                  start_room: bool = False, end_temperature_c: float | None = None, note: str | None = None,
+                  position: int | None = None) -> int:
+        """Новый этап в конце последовательности сеанса. Температуры необязательны и не подставляются.
+
+        position — номер этапа при переносе данных (импорт); обычно не задаётся."""
+        _stage_check(direction, start_temperature_c, start_room)
+        if self._one('SELECT id FROM sessions WHERE id=?', (session_id,)) is None:
+            raise DatabaseError('Сеанс не найден.')
+        pos = position
+        if pos is None:
+            pos = self._one('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM stages WHERE session_id=?',
+                            (session_id,))['p']
+        elif self._one('SELECT id FROM stages WHERE session_id=? AND position=?', (session_id, pos)):
+            raise DatabaseError(f'Этап {pos} в этом сеансе уже существует.')
+        with self.conn:
+            return self.conn.execute(
+                'INSERT INTO stages(session_id, position, direction, start_temperature_c, start_room, '
+                'end_temperature_c, note, created_at) VALUES (?,?,?,?,?,?,?,?)',
+                (session_id, pos, direction, start_temperature_c, int(bool(start_room)), end_temperature_c,
+                 (note or '').strip() or None, now_utc())).lastrowid
+
+    def update_stage(self, stage_id: int, *, direction: str, start_temperature_c: float | None,
+                     start_room: bool, end_temperature_c: float | None, note: str | None) -> None:
+        _stage_check(direction, start_temperature_c, start_room)
+        with self.conn:
+            self.conn.execute('UPDATE stages SET direction=?, start_temperature_c=?, start_room=?, '
+                              'end_temperature_c=?, note=? WHERE id=?',
+                              (direction, start_temperature_c, int(bool(start_room)), end_temperature_c,
+                               (note or '').strip() or None, stage_id))
+
+    def delete_stage(self, stage_id: int) -> None:
+        """Удалить этап. Наблюдения НЕ удаляются — остаются «без привязки к сеансу». Следующие этапы сеанса
+        сдвигаются на один номер."""
+        r = self._one('SELECT session_id, position FROM stages WHERE id=?', (stage_id,))
+        if r is None:
+            return
+        with self.conn:
+            self.conn.execute('DELETE FROM stages WHERE id=?', (stage_id,))
+            self.conn.execute('UPDATE stages SET position = position - 1 WHERE session_id=? AND position>?',
+                              (r['session_id'], r['position']))
+
+    def stages(self, session_id: int) -> list[dict]:
+        rows = self._all('SELECT * FROM stages WHERE session_id=? ORDER BY position, id', (session_id,))
+        return [dict(r, number=r['position'], start_room=bool(r['start_room'])) for r in rows]
+
+    def stage(self, stage_id: int) -> dict | None:
+        r = self._one('SELECT * FROM stages WHERE id=?', (stage_id,))
+        if r is None:
+            return None
+        return next(s for s in self.stages(r['session_id']) if s['id'] == stage_id)
+
     def inclusions(self, sample_id: int, mineral_id: int | None, fia_id: int | None) -> list[sqlite3.Row]:
         return self._all('SELECT * FROM inclusions WHERE sample_id=? AND mineral_id IS ? AND fia_id IS ? '
                          'ORDER BY name COLLATE NOCASE', (sample_id, mineral_id, fia_id))
@@ -400,13 +559,35 @@ class Database:
         return self._one(f'SELECT COUNT(*) AS n FROM ({_OBS_CONTEXT_SQL}) WHERE {where}', args)['n']
 
     # --- наблюдения ----------------------------------------------------------
-    def add_observation(self, inclusion_id: int, obs: dict) -> int:
+    def add_observation(self, inclusion_id: int, obs: dict, stage_id: int | None = None) -> int:
+        """Добавить наблюдение. stage_id — необязательная привязка к этапу сеанса того же включения."""
         vals = _obs_values(obs)
+        if stage_id is not None:
+            self._check_stage(inclusion_id, stage_id)
         ts = now_utc()
         with self.conn:
             return self.conn.execute(
-                f'INSERT INTO observations(inclusion_id, {", ".join(OBS_COLUMNS)}, created_at, updated_at) '
-                f'VALUES (?, {", ".join("?" * len(OBS_COLUMNS))}, ?, ?)', (inclusion_id, *vals, ts, ts)).lastrowid
+                f'INSERT INTO observations(inclusion_id, {", ".join(OBS_COLUMNS)}, created_at, updated_at, stage_id) '
+                f'VALUES (?, {", ".join("?" * len(OBS_COLUMNS))}, ?, ?, ?)',
+                (inclusion_id, *vals, ts, ts, stage_id)).lastrowid
+
+    def _check_stage(self, inclusion_id: int, stage_id: int) -> None:
+        row = self._one('SELECT se.inclusion_id FROM stages st JOIN sessions se ON se.id = st.session_id '
+                        'WHERE st.id=?', (stage_id,))
+        if row is None:
+            raise DatabaseError('Этап не найден.')
+        if row['inclusion_id'] != inclusion_id:
+            raise DatabaseError('Этап относится к другому включению.')
+
+    def set_observation_stage(self, obs_id: int, stage_id: int | None) -> None:
+        """Привязать наблюдение к этапу (или снять привязку: stage_id=None). Само измерение не меняется."""
+        row = self._one('SELECT inclusion_id FROM observations WHERE id=?', (obs_id,))
+        if row is None:
+            raise DatabaseError('Наблюдение не найдено.')
+        if stage_id is not None:
+            self._check_stage(row['inclusion_id'], stage_id)
+        with self.conn:
+            self.conn.execute('UPDATE observations SET stage_id=? WHERE id=?', (stage_id, obs_id))
 
     def update_observation(self, obs_id: int, obs: dict) -> None:
         vals = _obs_values(obs)
@@ -428,8 +609,11 @@ class Database:
         out = []
         for r in rows:
             d = dict(r)
-            for k in (*OBS_FLAG_COLUMNS, *OBS_EXTRA_FLAG_COLUMNS, 'other_salts_confirmed', 'coeval_documented'):
+            for k in (*OBS_FLAG_COLUMNS, *OBS_EXTRA_FLAG_COLUMNS, 'other_salts_confirmed', 'coeval_documented',
+                      *INITIAL_PHASE_COLUMNS):
                 d[k] = _i2b(d[k])
+            if d['session_id'] is None:
+                d['session_number'] = None
             out.append(d)
         return out
 
@@ -500,8 +684,8 @@ class Database:
                  n_rows, n_imported, n_errors, n_duplicates)).lastrowid
 
     def table_rows(self, table: str) -> tuple[list[str], list[tuple]]:
-        if table not in ('projects', 'samples', 'minerals', 'fias', 'inclusions', 'observations',
-                         'calc_runs', 'results', 'import_log'):
+        if table not in ('projects', 'samples', 'minerals', 'fias', 'inclusions', 'sessions', 'stages',
+                         'observations', 'calc_runs', 'results', 'import_log'):
             raise DatabaseError(table)
         cur = self.conn.execute(f'SELECT * FROM {table} ORDER BY id')
         return [c[0] for c in cur.description], [tuple(r) for r in cur.fetchall()]
@@ -512,14 +696,25 @@ SELECT o.*, i.name AS inclusion_name, i.inclusion_type, i.sample_id, i.mineral_i
        i.carbonic_fraction, i.carbonic_fraction_unc, i.carbonic_fraction_method, i.carbonic_fraction_temp_c,
        i.other_salts_confirmed, i.trap_temperature_c, i.trap_temperature_max_c, i.trap_pressure_bar,
        i.trap_pressure_max_bar, i.trap_constraint_source, i.coeval_documented, i.coeval_note,
+       i.initial_liquid, i.initial_vapor, i.initial_solid, i.initial_temperature_c, i.initial_room,
+       i.description AS inclusion_note,
        s.name AS sample_name, s.project_id, p.name AS project_name,
-       m.name AS mineral_name, f.name AS fia_name
+       m.name AS mineral_name, f.name AS fia_name,
+       st.session_id, st.position AS stage_position, st.direction AS stage_direction,
+       st.start_temperature_c AS stage_start_c, st.start_room AS stage_start_room,
+       st.end_temperature_c AS stage_end_c, st.note AS stage_note,
+       se.started_at AS session_started_at, se.note AS session_note, se.finished AS session_finished,
+       (SELECT COUNT(*) FROM sessions x WHERE x.inclusion_id = se.inclusion_id AND
+            (COALESCE(x.started_at, '9999') < COALESCE(se.started_at, '9999') OR
+             (COALESCE(x.started_at, '9999') = COALESCE(se.started_at, '9999') AND x.id <= se.id))) AS session_number
 FROM observations o
 JOIN inclusions i ON i.id = o.inclusion_id
 JOIN samples s ON s.id = i.sample_id
 JOIN projects p ON p.id = s.project_id
 LEFT JOIN minerals m ON m.id = i.mineral_id
 LEFT JOIN fias f ON f.id = i.fia_id
+LEFT JOIN stages st ON st.id = o.stage_id
+LEFT JOIN sessions se ON se.id = st.session_id
 """
 
 
@@ -528,6 +723,26 @@ def _req(value: str, label: str) -> str:
     if not v:
         raise DatabaseError(f'{label}: значение не может быть пустым.')
     return v
+
+
+def _session_date(value: str | None) -> str | None:
+    v = (value or '').strip()
+    if not v:
+        return None
+    for fmt in (SESSION_DATE_FORMAT, '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d',
+                '%d.%m.%Y %H:%M', '%d.%m.%Y'):
+        try:
+            return datetime.strptime(v, fmt).strftime(SESSION_DATE_FORMAT)
+        except ValueError:
+            continue
+    raise DatabaseError(f'Дата сеанса «{value}» не распознана (ожидается ГГГГ-ММ-ДД ЧЧ:ММ или ДД.ММ.ГГГГ ЧЧ:ММ).')
+
+
+def _stage_check(direction, start_temperature_c, start_room) -> None:
+    if direction not in DIRECTIONS:
+        raise DatabaseError(f'Недопустимое направление этапа: {direction!r}')
+    if start_temperature_c is not None and start_room:
+        raise DatabaseError('Начало этапа: укажите либо значение температуры, либо «комнатная, значение не указано».')
 
 
 def _obs_values(obs: dict) -> tuple:

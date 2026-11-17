@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFile
 from .. import APP_TITLE, __version__
 from ..calc import (Outcome, backend_versions, calculate_observation, derive_inclusion_results, passport_lines,
                     format_value)
-from ..db import Database, DatabaseError
+from ..db import DIRECTIONS, Database, DatabaseError
 from ..exporter import (export_database_xlsx, export_lab_format_xlsx, export_observations_csv, export_results_csv,
                         export_results_xlsx)
 from ..methods import (HOMOGENIZATION, KINDS, METHODS, STATUS_RU, kind_label, method_category, methods_html,
@@ -22,6 +22,7 @@ from ..methods import (HOMOGENIZATION, KINDS, METHODS, STATUS_RU, kind_label, me
 from ..paths import default_db_path, log_file_path, project_root
 from ..plots import GROUP_BY, PLOT_TYPES, make_figure, save_figure
 from .dialogs import ImportDialog, ObservationDialog, TextDialog
+from .experiment import (AddInclusionDialog, AssignStageDialog, ExperimentPanel, fmt_session_date)
 from .widgets import HomogCombo, NumberEdit, TriStateCombo, passport_html
 
 log = logging.getLogger(__name__)
@@ -73,6 +74,18 @@ def _flag_text(v):
     return '' if v is None else ('да' if v else 'нет')
 
 
+def _session_cell(o) -> str:
+    if o.get('stage_id') is None:
+        return '—'
+    return f'{o["session_number"]} · {fmt_session_date(o["session_started_at"])}'
+
+
+def _stage_cell(o) -> str:
+    if o.get('stage_id') is None:
+        return '—'
+    return f'{o["stage_position"]} · {DIRECTIONS[o["stage_direction"]].lower()}'
+
+
 class NumItem(QTableWidgetItem):
     """Ячейка с числом: отображение с десятичной запятой, сортировка по значению."""
 
@@ -115,6 +128,17 @@ class MainWindow(QMainWindow):
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
         ll.addWidget(QLabel('<b>Проекты и объекты</b>'))
+        brow = QHBoxLayout()
+        self.project_btn = QPushButton('Создать проект')
+        self.project_btn.clicked.connect(self.add_project)
+        self.inclusion_btn = QPushButton('➕ Добавить включение')
+        self.inclusion_btn.setStyleSheet('QPushButton{font-weight:bold;padding:5px 10px}')
+        self.inclusion_btn.setToolTip('Одно окно: образец, минерал, группа включений, номер, наблюдаемые фазы. '
+                                      'Нужные узлы дерева создаются автоматически.')
+        self.inclusion_btn.clicked.connect(self.add_inclusion)
+        brow.addWidget(self.project_btn)
+        brow.addWidget(self.inclusion_btn, 1)
+        ll.addLayout(brow)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['Объект', 'Наблюд.'])
         self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -177,7 +201,9 @@ class MainWindow(QMainWindow):
                                     'Новый расчёт для объекта, выбранного в дереве')
         self.a_calc_all = self._act('Рассчитать всю базу', lambda: self.calculate(selected_only=False), 'Shift+F5')
         self.a_add_obs = self._act('Добавить наблюдение…', self.add_observation, 'Ctrl+N')
-        self.a_project = self._act('Новый проект…', self.add_project)
+        self.a_project = self._act('Создать проект…', self.add_project)
+        self.a_inclusion = self._act('Добавить включение…', self.add_inclusion, 'Ctrl+Shift+N',
+                                     'Образец, минерал, группа включений, номер и наблюдаемые фазы — одним окном')
         self.a_log = self._act('Журнал работы', self.show_log)
         self.a_about = self._act('О программе', self.about)
 
@@ -187,7 +213,7 @@ class MainWindow(QMainWindow):
                   self.a_export_res, None, self.a_backup, self.a_dump, None, self.a_quit):
             m.addSeparator() if a is None else m.addAction(a)
         m = self.menuBar().addMenu('&Данные')
-        for a in (self.a_project, self.a_add_obs):
+        for a in (self.a_project, self.a_inclusion, self.a_add_obs):
             m.addAction(a)
         m = self.menuBar().addMenu('&Расчёт')
         m.addAction(self.a_calc_sel)
@@ -198,7 +224,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_about)
         tb = self.addToolBar('Основные действия')
         tb.setObjectName('main_toolbar')
-        for a in (self.a_project, self.a_add_obs, self.a_import, self.a_calc_sel, self.a_calc_all,
+        for a in (self.a_project, self.a_inclusion, self.a_add_obs, self.a_import, self.a_calc_sel, self.a_calc_all,
                   self.a_export_res):
             tb.addAction(a)
 
@@ -209,17 +235,36 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.obs_caption)
         self.obs_cols = ['ID', 'Образец', 'Минерал', 'FIA', 'Включение', 'Тип', 'T, °C', '±, °C',
                          'Гомогенизация', 'Жидк. CO₂', 'Газ. CO₂', 'Раствор', 'Чистая CO₂', 'Условия перехода',
-                         'Фазы', 'Комментарий', 'Источник']
+                         'Фазы', 'Комментарий', 'Источник', 'Сеанс', 'Этап']
+        self.exp_panel = ExperimentPanel()
+        self.exp_panel.changed.connect(self._experiment_changed)
+        self.exp_panel.add_requested.connect(lambda stage_id: self.add_observation(stage_id=stage_id))
+        self.exp_panel.edit_requested.connect(self._edit_observation_id)
+        self.exp_panel.delete_requested.connect(lambda obs_id: self._delete_observation_ids([obs_id]))
+        self.exp_panel.assign_requested.connect(self.assign_observations)
+        self.exp_panel.toggled.connect(self._experiment_toggled)
         self.obs_table = QTableWidget(0, len(self.obs_cols))
         self.obs_table.setHorizontalHeaderLabels(self.obs_cols)
         self.obs_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.obs_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.obs_table.setSortingEnabled(True)
         self.obs_table.doubleClicked.connect(self.edit_observation)
-        lay.addWidget(self.obs_table)
+        # панель «Ход эксперимента» над таблицей: сворачивается, высота меняется перетаскиванием границы
+        self.obs_split = QSplitter(Qt.Vertical)
+        self.obs_split.setChildrenCollapsible(False)
+        self.obs_split.addWidget(self.exp_panel)
+        self.obs_split.addWidget(self.obs_table)
+        self.obs_split.setStretchFactor(0, 0)
+        self.obs_split.setStretchFactor(1, 1)
+        self.obs_table.setMinimumHeight(120)
+        lay.addWidget(self.obs_split, 1)
+        self._exp_height = int(self.settings.value('experiment_panel_height', 330))
+        self.obs_split.splitterMoved.connect(self._experiment_resized)
+        self.exp_panel.set_expanded(self.settings.value('experiment_panel_expanded', 'true') != 'false')
         row = QHBoxLayout()
-        for text, slot in (('Добавить…', self.add_observation), ('Изменить…', self.edit_observation),
-                           ('Удалить', self.delete_observations)):
+        for text, slot in (('Добавить…', lambda: self.add_observation()), ('Изменить…', self.edit_observation),
+                           ('Удалить', self.delete_observations),
+                           ('Привязать к этапу…', lambda: self.assign_observations())):
             b = QPushButton(text)
             b.clicked.connect(slot)
             row.addWidget(b)
@@ -522,13 +567,15 @@ class MainWindow(QMainWindow):
         menu.addAction('Новый проект…', self.add_project)
         if n:
             lvl = n['level']
+            menu.addAction('Добавить включение…', self.add_inclusion)
             menu.addAction('Добавить образец…', self.add_sample)
             if lvl in ('sample', 'mineral', 'mineral_none', 'fia', 'inclusion'):
                 menu.addAction('Добавить минерал…', self.add_mineral)
                 menu.addAction('Добавить FIA…', self.add_fia)
-                menu.addAction('Добавить включение…', self.add_inclusion)
             if lvl == 'inclusion':
-                menu.addAction('Добавить наблюдение…', self.add_observation)
+                menu.addAction('Добавить наблюдение…', lambda: self.add_observation())
+                menu.addAction('Новый сеанс измерений…', self.exp_panel.new_session)
+                menu.addAction('Исходное состояние и примечание…', self.exp_panel.edit_initial)
                 menu.addAction('Доля углекислотной фазы…', self.edit_carbonic_fraction)
                 menu.addAction('Состав солей и независимое ограничение…', self.edit_inclusion_context)
             menu.addSeparator()
@@ -589,15 +636,36 @@ class MainWindow(QMainWindow):
                 self.refresh_tree()
 
     def add_inclusion(self):
-        n = self._need(('sample', 'mineral', 'mineral_none', 'fia', 'inclusion'),
-                       'Выберите образец, минерал или FIA в дереве.')
-        if n:
-            name = self._ask_name('Новое включение', 'Номер включения:')
-            if name:
-                itype = self._ask_name('Тип включения', 'Тип включения (необязательно, напр. L+V, L+V+Lco2):') or ''
-                if self._guard(self.db.add_inclusion, n['sample_id'], name, n.get('mineral_id'),
-                               n.get('fia_id'), itype):
-                    self.refresh_tree()
+        """Единый диалог создания включения; узлы дерева создаются автоматически и без дубликатов."""
+        if not self.db.projects():
+            QMessageBox.information(self, 'Добавить включение', 'В базе пока нет проекта. Сначала создайте проект.')
+            self.add_project()
+            if not self.db.projects():
+                return
+        n = self.selected_node() or {}
+        names = {}
+        for key, table in (('sample_id', 'samples'), ('mineral_id', 'minerals'), ('fia_id', 'fias')):
+            row = self.db._one(f'SELECT name FROM {table} WHERE id=?', (n.get(key),)) if n.get(key) else None
+            names[key] = row['name'] if row else ''
+        dlg = AddInclusionDialog(self, self.db, n.get('project_id'), names['sample_id'], names['mineral_id'],
+                                 names['fia_id'])
+        dlg.added.connect(lambda _id: self.refresh_tree())
+        dlg.exec()
+        if dlg.last_id is not None:
+            self.select_inclusion(dlg.last_id)
+
+    def select_inclusion(self, inclusion_id: int) -> bool:
+        """Выбрать включение в дереве (раскрыв родительские узлы)."""
+        stack = [self.tree.invisibleRootItem()]
+        while stack:
+            x = stack.pop()
+            d = x.data(0, ROLE)
+            if d and d['level'] == 'inclusion' and d['id'] == inclusion_id:
+                self.tree.setCurrentItem(x)
+                self.tree.scrollToItem(x)
+                return True
+            stack += [x.child(i) for i in range(x.childCount())]
+        return False
 
     def edit_carbonic_fraction(self):
         from .dialogs import CarbonicFractionDialog
@@ -663,7 +731,8 @@ class MainWindow(QMainWindow):
                     kind_label(o['kind']), None, None, HOMOGENIZATION.get(o['homogenization_to'], ''),
                     _flag_text(o['liquid_co2_present']), _flag_text(o['vapor_co2_present']),
                     _flag_text(o['aqueous_brine_present']), _flag_text(o['co2_purity_confirmed']),
-                    _transition_text(o), o['phase_notes'] or '', o['comment'] or '', o['source'] or '']
+                    _transition_text(o), o['phase_notes'] or '', o['comment'] or '', o['source'] or '',
+                    _session_cell(o), _stage_cell(o)]
             for c, v in enumerate(vals):
                 if c == 0:
                     it = QTableWidgetItem()
@@ -680,6 +749,68 @@ class MainWindow(QMainWindow):
         t.resizeColumnsToContents()
         for c in (14, 15, 16):
             t.setColumnWidth(c, min(t.columnWidth(c), 220))
+        self._refresh_experiment()
+
+    # ------------------------------------------------------------------ ход эксперимента
+    def _refresh_experiment(self):
+        n = self.selected_node()
+        inc_id = n['id'] if n and n['level'] == 'inclusion' else None
+        self.exp_panel.set_inclusion(self.db, inc_id, self._inclusion_label(inc_id) if inc_id else '')
+        self._fit_experiment_panel()
+
+    def _fit_experiment_panel(self):
+        """Свёрнутая панель (или панель без выбранного включения) занимает одну строку и не вытесняет таблицу."""
+        p = self.exp_panel
+        if p.has_body():
+            p.setMinimumHeight(150)
+            p.setMaximumHeight(16777215)
+            total = sum(self.obs_split.sizes()) or 600
+            h = max(150, min(self._exp_height, total - 140))
+            self.obs_split.setSizes([h, max(120, total - h)])
+        else:
+            h = p.toggle.sizeHint().height() + 6
+            p.setMinimumHeight(h)
+            p.setMaximumHeight(h)
+            total = sum(self.obs_split.sizes())
+            if total:
+                self.obs_split.setSizes([h, total - h])
+
+    def _experiment_toggled(self, on: bool):
+        self.settings.setValue('experiment_panel_expanded', 'true' if on else 'false')
+        self._fit_experiment_panel()
+
+    def _experiment_resized(self, *_):
+        if self.exp_panel.has_body():
+            self._exp_height = self.obs_split.sizes()[0]
+            self.settings.setValue('experiment_panel_height', self._exp_height)
+
+    def _experiment_changed(self):
+        """Панель изменила сеансы, этапы или привязки — обновить таблицу (те же записи) и дерево."""
+        self.exp_panel.blockSignals(True)
+        try:
+            self.refresh_tree()
+            self.refresh_observations()
+        finally:
+            self.exp_panel.blockSignals(False)
+
+    def assign_observations(self, ids: list[int] | None = None):
+        """Привязать наблюдения одного включения к этапу (или снять привязку) — вручную."""
+        ids = list(ids) if ids else self._selected_obs_ids()
+        if not ids:
+            QMessageBox.information(self, 'Привязка к этапу', 'Выберите наблюдения в таблице.')
+            return
+        selected = [self.db.observation(i) for i in ids]
+        inc_ids = {o['inclusion_id'] for o in selected}
+        if len(inc_ids) != 1:
+            QMessageBox.information(self, 'Привязка к этапу', 'Выберите наблюдения одного включения: этапы '
+                                    'относятся к конкретному включению.')
+            return
+        inc_id = inc_ids.pop()
+        dlg = AssignStageDialog(self, self.db, inc_id, self._inclusion_label(inc_id), selected)
+        if dlg.exec() and dlg.result:
+            for obs_id in dlg.result[0]:
+                self._guard(self.db.set_observation_stage, obs_id, dlg.result[1])
+            self.refresh_observations()
 
     def _selected_obs_ids(self) -> list[int]:
         rows = {i.row() for i in self.obs_table.selectedIndexes()}
@@ -690,36 +821,52 @@ class MainWindow(QMainWindow):
                          'JOIN projects p ON p.id=s.project_id WHERE i.id=?', (inclusion_id,))
         return f'{r["p"]} → образец {r["s"]} → {r["name"]}'
 
-    def add_observation(self):
+    def add_observation(self, *_, stage_id: int | None = None):
+        """Добавить наблюдение существующим диалогом. stage_id — этап панели «Ход эксперимента» (необязательно)."""
         n = self.selected_node()
         inc_id = n['id'] if n and n['level'] == 'inclusion' else None
+        if stage_id is not None:
+            inc_id = self.db.session(self.db.stage(stage_id)['session_id'])['inclusion_id']
         if inc_id is None:
             ids = self._selected_obs_ids()
             if ids:
                 inc_id = self.db.observation(ids[0])['inclusion_id']
         if inc_id is None:
             QMessageBox.information(self, 'Новое наблюдение',
-                                    'Выберите включение в дереве (или создайте его: правая кнопка мыши на образце).')
+                                    'Выберите включение в дереве (или создайте его кнопкой «Добавить включение»).')
             return
         dlg = ObservationDialog(self, self._inclusion_label(inc_id))
-        if dlg.exec() and dlg.result and self._guard(self.db.add_observation, inc_id, dlg.result):
+        if dlg.exec() and dlg.result and self._guard(self.db.add_observation, inc_id, dlg.result, stage_id):
             self.refresh_tree()
             self.refresh_observations()
 
     def edit_observation(self, *_):
         ids = self._selected_obs_ids()
-        if not ids:
+        if ids:
+            self._edit_observation_id(ids[0])
+
+    def _edit_observation_id(self, obs_id: int):
+        obs = self.db.observation(obs_id)
+        if obs is None:
             return
-        obs = self.db.observation(ids[0])
+        self._select_obs_row(obs_id)
         dlg = ObservationDialog(self, self._inclusion_label(obs['inclusion_id']), obs)
         if dlg.exec() and dlg.result:
             res = dict(dlg.result)
             res['source'] = obs.get('source') or 'ручной ввод'
-            self._guard(self.db.update_observation, obs['id'], res)
+            self._guard(self.db.update_observation, obs['id'], res)      # привязка к этапу сохраняется
             self.refresh_observations()
 
+    def _select_obs_row(self, obs_id: int):
+        for r in range(self.obs_table.rowCount()):
+            if self.obs_table.item(r, 0).data(ROLE) == obs_id:
+                self.obs_table.selectRow(r)
+                return
+
     def delete_observations(self):
-        ids = self._selected_obs_ids()
+        self._delete_observation_ids(self._selected_obs_ids())
+
+    def _delete_observation_ids(self, ids: list[int]):
         if not ids:
             return
         if QMessageBox.question(self, 'Удаление', f'Удалить выбранные наблюдения ({len(ids)})?\n'

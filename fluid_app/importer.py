@@ -65,7 +65,32 @@ TARGET_FIELDS: dict[str, tuple[str, tuple[str, ...]]] = {
                                                      'способ оценки доли')),
     'phase_notes': ('Описание фаз', ('phase_notes', 'phases', 'фазы', 'фазовый состав', 'описание фаз')),
     'comment': ('Комментарий', ('comment', 'comments', 'note', 'notes', 'комментарий', 'примечание')),
+    # ход эксперимента (необязательно): сеанс и этап, к которым относится наблюдение
+    'session_number': ('Сеанс №', ('session_number', 'session_no', 'сеанс', 'сеанс №', '№ сеанса')),
+    'session_date': ('Дата сеанса (дата опыта)', ('session_date', 'session_started_at', 'дата сеанса',
+                                                  'дата опыта')),
+    'session_note': ('Примечание к сеансу', ('session_note', 'примечание к сеансу')),
+    'session_finished': ('Сеанс завершён', ('session_finished', 'сеанс завершён', 'сеанс завершен')),
+    'stage_number': ('Этап №', ('stage_number', 'stage_no', 'этап', 'этап №', '№ этапа')),
+    'stage_direction': ('Этап: охлаждение / нагревание', ('stage_direction', 'направление этапа')),
+    'stage_start': ('Этап: начальная температура, °C', ('stage_start_c', 'stage_start', 'начало этапа')),
+    'stage_start_room': ('Этап: начало при комнатной температуре (значение не указано)',
+                         ('stage_start_room', 'начало этапа комнатная')),
+    'stage_end': ('Этап: конечная температура, °C', ('stage_end_c', 'stage_end', 'конец этапа')),
+    'stage_note': ('Примечание к этапу', ('stage_note', 'примечание к этапу')),
+    # исходное состояние включения (необязательно)
+    'initial_liquid': ('Исходно наблюдается жидкость', ('initial_liquid', 'исходно жидкость')),
+    'initial_vapor': ('Исходно наблюдается газ', ('initial_vapor', 'исходно газ')),
+    'initial_solid': ('Исходно наблюдается твёрдая фаза', ('initial_solid', 'исходно твёрдая фаза',
+                                                             'исходно твердая фаза')),
+    'initial_temperature': ('Температура исходного наблюдения, °C', ('initial_temperature_c', 'initial_temperature',
+                                                                      'температура исходного наблюдения')),
+    'initial_room': ('Исходное наблюдение при комнатной температуре (значение не указано)',
+                     ('initial_room', 'исходно комнатная')),
+    'inclusion_note': ('Примечание к включению', ('inclusion_note', 'примечание к включению')),
 }
+_DIRECTION = {'cooling': 'cooling', 'охлаждение': 'cooling', 'cool': 'cooling', 'heating': 'heating',
+              'нагревание': 'heating', 'нагрев': 'heating', 'heat': 'heating'}
 WIDE_KINDS = ('Tm_ice', 'Tm_clath', 'Tm_CO2', 'Th_CO2', 'Th_total', 'Te', 'Tm_hydrohalite', 'T_diss_halite')
 FLAG_KEYS = ('liquid_co2_present', 'vapor_co2_present', 'aqueous_brine_present', 'co2_purity_confirmed',
              'vapor_present_at_transition', 'phase_identified')
@@ -120,6 +145,8 @@ class ParsedRow:
     inclusion_type: str = ''
     observations: list[dict] = field(default_factory=list)
     inclusion_props: dict = field(default_factory=dict)   # свойства включения (φ и др.)
+    initial_state: dict = field(default_factory=dict)     # исходное состояние включения и примечание к нему
+    experiment: dict = field(default_factory=dict)        # сеанс и этап наблюдений этой строки (если заданы)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -352,6 +379,7 @@ def parse_rows(table: Table, mapping: dict[str, str | None]) -> list[ParsedRow]:
                 common[key] = parse_flag(cell(row, key))
             except ValueError as exc:
                 p.errors.append(f'{TARGET_FIELDS[key][0]}: {exc}')
+        _parse_experiment(p, lambda key: cell(row, key))
 
         def add(kind, ttext, htext, hlabel):
             try:
@@ -401,6 +429,91 @@ def parse_rows(table: Table, mapping: dict[str, str | None]) -> list[ParsedRow]:
     return parsed
 
 
+def _parse_experiment(p: ParsedRow, cell) -> None:
+    """Сеанс, этап и исходное состояние включения. Пустые ячейки остаются «не указано»."""
+    def conv(key, fn):
+        try:
+            return fn(cell(key))
+        except ValueError as exc:
+            p.errors.append(f'{TARGET_FIELDS[key][0]}: {exc}')
+            return None
+
+    ini = {'liquid': conv('initial_liquid', parse_flag), 'vapor': conv('initial_vapor', parse_flag),
+           'solid': conv('initial_solid', parse_flag), 'temperature_c': conv('initial_temperature', parse_number),
+           'room': bool(conv('initial_room', parse_flag)), 'note': cell('inclusion_note') or None}
+    if ini['temperature_c'] is not None and ini['room']:
+        p.errors.append('исходное состояние: задано и значение температуры, и «комнатная, значение не указано»')
+    if any(v not in (None, False) for v in ini.values()):
+        p.initial_state = ini
+    session_keys = ('session_number', 'session_date', 'session_note', 'session_finished')
+    stage_keys = ('stage_number', 'stage_direction', 'stage_start', 'stage_start_room', 'stage_end', 'stage_note')
+    has_stage = any(cell(k) for k in stage_keys)
+    if not has_stage and not any(cell(k) for k in session_keys):
+        return
+    if not has_stage:
+        p.warnings.append('сеанс указан без этапа — наблюдения строки останутся без привязки к сеансу')
+        return
+    direction = _DIRECTION.get(cell('stage_direction').lower())
+    if direction is None:
+        p.errors.append(f'направление этапа «{cell("stage_direction")}» не распознано (охлаждение/нагревание)')
+        return
+
+    def integer(text):
+        v = parse_number(text)
+        if v is not None and (v != int(v) or v < 1):
+            raise ValueError('ожидается целый номер, начиная с 1')
+        return None if v is None else int(v)
+    exp = {'session_number': conv('session_number', integer), 'session_date': cell('session_date') or None,
+           'session_note': cell('session_note') or None,
+           'session_finished': bool(conv('session_finished', parse_flag)),
+           'stage_number': conv('stage_number', integer), 'stage_direction': direction,
+           'stage_start_c': conv('stage_start', parse_number),
+           'stage_start_room': bool(conv('stage_start_room', parse_flag)),
+           'stage_end_c': conv('stage_end', parse_number), 'stage_note': cell('stage_note') or None}
+    if exp['stage_start_c'] is not None and exp['stage_start_room']:
+        p.errors.append('начало этапа: задано и значение температуры, и «комнатная, значение не указано»')
+    if exp['session_date']:
+        from .db import _session_date
+        try:
+            exp['session_date'] = _session_date(exp['session_date'])
+        except DatabaseError as exc:
+            p.errors.append(str(exc))
+    p.experiment = exp
+
+
+def _resolve_stage(db: Database, inc_id: int, exp: dict, cache: dict) -> int:
+    """Найти или создать сеанс и этап строки импорта (без дубликатов при повторном импорте)."""
+    skey = (inc_id, exp['session_number'], exp['session_date'], exp['session_note'])
+    sessions = cache.setdefault('sessions', {})
+    if skey not in sessions:
+        claimed = set(sessions.values())
+        found = next((x for x in db.sessions(inc_id) if x['id'] not in claimed and
+                      x['started_at'] == exp['session_date'] and (x['note'] or None) == exp['session_note']), None)
+        if found:
+            sessions[skey] = found['id']
+        else:
+            sessions[skey] = db.add_session(inc_id, exp['session_date'], exp['session_note'])
+            if exp['session_finished']:
+                db.set_session_finished(sessions[skey], True)
+    session_id = sessions[skey]
+    stages = db.stages(session_id)
+    number = exp['stage_number']
+    if number is None:        # номер этапа не задан: этап определяется направлением и температурами
+        for st in stages:
+            if (st['direction'], st['start_temperature_c'], st['start_room'], st['end_temperature_c'],
+                    st['note']) == (exp['stage_direction'], exp['stage_start_c'], exp['stage_start_room'],
+                                    exp['stage_end_c'], exp['stage_note']):
+                return st['id']
+    else:
+        for st in stages:
+            if st['position'] == number:
+                if st['direction'] != exp['stage_direction']:
+                    raise DatabaseError(f'этап {number} этого сеанса уже существует с другим направлением')
+                return st['id']
+    return db.add_stage(session_id, exp['stage_direction'], exp['stage_start_c'], exp['stage_start_room'],
+                        exp['stage_end_c'], exp['stage_note'], position=number)
+
+
 @dataclass
 class ImportReport:
     n_rows: int = 0
@@ -416,6 +529,7 @@ def import_rows(db: Database, project_id: int, parsed: list[ParsedRow], *, sourc
                 skip_duplicates: bool = True) -> ImportReport:
     """Записать корректные строки в базу. Строки с ошибками не импортируются."""
     rep = ImportReport(n_rows=len(parsed))
+    cache: dict = {}
     for p in parsed:
         if p.errors:
             rep.n_errors += 1
@@ -446,13 +560,23 @@ def import_rows(db: Database, project_id: int, parsed: list[ParsedRow], *, sourc
                     rep.messages.append(f'Строка {p.row_number}: φ включения «{p.inclusion}» уже задана '
                                         f'({100 * cur["carbonic_fraction"]:g} %), значение файла '
                                         f'({100 * props["carbonic_fraction"]:g} %) не применено')
+            ini = p.initial_state
+            if ini:
+                cur = db.inclusion(inc_id)
+                if (cur['initial_liquid'] is None and cur['initial_vapor'] is None and cur['initial_solid'] is None
+                        and cur['initial_temperature_c'] is None and not cur['initial_room']):
+                    db.set_initial_state(inc_id, ini['liquid'], ini['vapor'], ini['solid'], ini['temperature_c'],
+                                         ini['room'])
+                if ini['note'] and not cur['description']:
+                    db.set_inclusion_note(inc_id, ini['note'])
+            stage_id = _resolve_stage(db, inc_id, p.experiment, cache) if p.experiment else None
             added = 0
             for obs in p.observations:
                 obs = dict(obs, source=f'{source}, строка {p.row_number}')
                 if skip_duplicates and db.observation_exists(inc_id, obs):
                     rep.n_duplicates += 1
                     continue
-                db.add_observation(inc_id, obs)
+                db.add_observation(inc_id, obs, stage_id)
                 added += 1
             rep.n_observations += added
             if added:

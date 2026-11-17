@@ -208,7 +208,7 @@ def export_database_xlsx(db: Database, path: str | Path) -> Path:
     path = Path(path)
     wb = Workbook()
     wb.remove(wb.active)
-    for table in ('projects', 'samples', 'minerals', 'fias', 'inclusions', 'observations',
+    for table in ('projects', 'samples', 'minerals', 'fias', 'inclusions', 'sessions', 'stages', 'observations',
                   'calc_runs', 'results', 'import_log'):
         ws = wb.create_sheet(table)
         cols, rows = db.table_rows(table)
@@ -226,7 +226,12 @@ def export_observations_csv(path: str | Path, observations: list[dict], *, delim
                'uncertainty_c', 'homogenization_to', 'liquid_co2_present', 'vapor_co2_present',
                'aqueous_brine_present', 'co2_purity_confirmed', 'phase_notes', 'comment', 'carbonic_fraction_pct',
                'carbonic_fraction_unc_pct', 'carbonic_fraction_method', 'vapor_present_at_transition',
-               'phase_identified']
+               'phase_identified',
+               # ход эксперимента: сеанс (дата опыта) и этап наблюдения; исходное состояние включения
+               'session_number', 'session_date', 'session_note', 'session_finished', 'stage_number',
+               'stage_direction', 'stage_start_c', 'stage_start_room', 'stage_end_c', 'stage_note',
+               'initial_liquid', 'initial_vapor', 'initial_solid', 'initial_temperature_c', 'initial_room',
+               'inclusion_note']
     with path.open('w', encoding='utf-8-sig', newline='') as fh:
         w = csv.writer(fh, delimiter=delimiter)
         w.writerow(headers)
@@ -242,8 +247,22 @@ def export_observations_csv(path: str | Path, observations: list[dict], *, delim
                         '' if o.get('carbonic_fraction') is None else repr(100 * o['carbonic_fraction']),
                         '' if o.get('carbonic_fraction_unc') is None else repr(100 * o['carbonic_fraction_unc']),
                         o.get('carbonic_fraction_method') or '', fl(o.get('vapor_present_at_transition')),
-                        fl(o.get('phase_identified'))])
+                        fl(o.get('phase_identified')), *_experiment_cells(o, fl)])
     return path
+
+
+def _experiment_cells(o: dict, fl) -> list:
+    """Сведения о сеансе, этапе и исходном состоянии включения для строки измерения (пусто — не указано)."""
+    def num(v):
+        return '' if v is None else repr(v)
+    linked = o.get('stage_id') is not None
+    return [o.get('session_number') or '', o.get('session_started_at') or '', o.get('session_note') or '',
+            fl(bool(o.get('session_finished'))) if linked else '', o.get('stage_position') or '',
+            o.get('stage_direction') or '', num(o.get('stage_start_c')),
+            fl(True) if o.get('stage_start_room') else '', num(o.get('stage_end_c')), o.get('stage_note') or '',
+            fl(o.get('initial_liquid')), fl(o.get('initial_vapor')), fl(o.get('initial_solid')),
+            num(o.get('initial_temperature_c')), fl(True) if o.get('initial_room') else '',
+            o.get('inclusion_note') or '']
 
 
 # --- Экспорт в формате лабораторной сводной таблицы («Таблица 1/2/3») ------------------------
